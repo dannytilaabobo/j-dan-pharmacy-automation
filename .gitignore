@@ -1,0 +1,30 @@
+# Secrets - never commit
+credentials.json
+
+# Generated Excel/data files
+*.xlsx
+*.xls
+
+# Proof photos / images
+*.jpg
+*.jpeg
+*.png
+
+# Report & data folders (generated output, not source code)
+JDan_Executive_Reports/
+JDan_PullOut_System/
+JDan_Sales_System/
+JDan_StockIn_Reports/
+DAILY SALES POS/
+PENDING_CLOUD_SYNC/
+ATTACHED PROOF FOR EXPIRY PULL OUT/
+SALES_REPORT_FROM_POS/
+
+# Logs
+JDan_System_Logs.txt
+*.log
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
