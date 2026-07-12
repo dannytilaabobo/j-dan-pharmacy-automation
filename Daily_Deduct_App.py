@@ -9,6 +9,8 @@ import shutil
 import traceback
 import sys
 
+from name_cleaning import clean_text
+
 # ==========================================
 #    CRASH DETECTOR (Anti-Silent Crash)
 # ==========================================
@@ -64,7 +66,7 @@ def read_pos_file(filepath):
         df.loc[df['Item Code'].astype(str).str.strip().isin(['Nan', 'nan', '', 'None']), 'Item Code'] = 'MANUAL-ENTRY'
     
     if 'Description' in df.columns:
-        df['Description'] = df['Description'].fillna('Unknown / Manual Entry')
+        df['Description'] = df['Description'].fillna('Unknown / Manual Entry').apply(clean_text)
 
     if 'Item Code' in df.columns:
         df = df[~df['Item Code'].astype(str).str.contains('Total', case=False, na=False)]

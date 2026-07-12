@@ -5,6 +5,8 @@ import datetime
 import os
 import sys
 
+from name_cleaning import clean_text
+
 # ==========================================
 #    GUI INITIALIZATION & AUDIT TRAIL
 # ==========================================
@@ -76,9 +78,9 @@ def on_select(event):
     entry_lot.focus()
 
 def add_to_staging_list():
-    prod = combo_product.get().strip()
+    prod = clean_text(combo_product.get().strip())
     code = entry_item_code.get().strip()
-    lot = entry_lot.get().strip()
+    lot = clean_text(entry_lot.get().strip())
     exp = entry_exp.get().strip().upper()
     qty = entry_qty.get().strip()
 

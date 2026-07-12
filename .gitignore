@@ -4,6 +4,10 @@ credentials.json
 # Generated Excel/data files
 *.xlsx
 *.xls
+*.csv
+
+# Master file backups (generated safety copies, not source)
+JDan_Master_Backups/
 
 # Proof photos / images
 *.jpg
