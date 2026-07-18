@@ -329,6 +329,13 @@ def save_all_to_master():
         if col not in df_master.columns:
             df_master[col] = default
 
+    # Text columns that were all-blank/NaN get read back by pandas as
+    # float64 (nothing but NaN to infer a type from), so assigning a string
+    # into them raises "Invalid value ... for dtype 'float64'". Force them
+    # to object dtype before writing any text into them.
+    for col in ['Supplier', 'Category', 'Is_Generic']:
+        df_master[col] = df_master[col].astype('object')
+
     for code, edit in pending_edits.items():
         mask = df_master['Item_Code'] == str(code)
         df_master.loc[mask, 'Reorder_Point'] = edit['Reorder_Point']
