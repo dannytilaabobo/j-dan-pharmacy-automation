@@ -117,7 +117,7 @@ def detect_changes(df_master, df_bitpos):
 
 def print_preview(price_changes, name_changes, discontinued):
     print('=' * 70)
-    print(' PREVIEW -- WALA PANG NA-A-APPLY NA PAGBABAGO')
+    print(' PREVIEW -- NO CHANGES HAVE BEEN APPLIED YET')
     print('=' * 70)
 
     print(f'\n--- (1) PRICE CHANGES: {len(price_changes)} item(s) ---')
@@ -125,28 +125,28 @@ def print_preview(price_changes, name_changes, discontinued):
         with pd.option_context('display.max_colwidth', 45, 'display.width', 200):
             print(pd.DataFrame(price_changes)[['Item_Code', 'Description', 'Old_Value', 'New_Value']].to_string(index=False))
     else:
-        print('  Wala.')
+        print('  None.')
 
-    print(f'\n--- (2) PANGALAN NA NAGBAGO: {len(name_changes)} item(s) (isa-isang tatanungin sa ibaba) ---')
+    print(f'\n--- (2) NAME CHANGES: {len(name_changes)} item(s) (each will be asked individually below) ---')
     if name_changes:
         with pd.option_context('display.max_colwidth', 45, 'display.width', 200):
             print(pd.DataFrame(name_changes)[['Item_Code', 'Old_Value', 'New_Value']].rename(
                 columns={'Old_Value': 'Old_Name', 'New_Value': 'New_Name'}).to_string(index=False))
     else:
-        print('  Wala.')
+        print('  None.')
 
-    print(f'\n--- (3) BAGONG DISCONTINUED (wala na sa BITPOS export): {len(discontinued)} item(s) ---')
+    print(f'\n--- (3) NEWLY DISCONTINUED (no longer in the BITPOS export): {len(discontinued)} item(s) ---')
     if discontinued:
         with pd.option_context('display.max_colwidth', 45, 'display.width', 200):
             print(pd.DataFrame(discontinued)[['Item_Code', 'Description']].to_string(index=False))
         if len(discontinued) > MASS_DISCONTINUE_WARNING_THRESHOLD:
-            print(f'\n  ⚠️  WARNING: {len(discontinued)} items ang mawawalan ng match sa BITPOS export -- '
-                  f'hindi pangkaraniwan ito. I-verify muna kung kumpleto ang CSV file bago mag-confirm, '
-                  f'baka partial/truncated na export lang ito, hindi totoong mass discontinuation.')
+            print(f'\n  ⚠️  WARNING: {len(discontinued)} items would lose their match in the BITPOS export -- '
+                  f'this is unusual. Please verify the CSV file is complete before confirming, '
+                  f'this may be a partial/truncated export rather than a real mass discontinuation.')
     else:
-        print('  Wala.')
+        print('  None.')
 
-    print('\nCurrent_Stock ay HINDI kailanman ginagalaw ng script na ito.')
+    print('\nCurrent_Stock is NEVER touched by this script.')
 
 
 def resolve_name_changes(name_changes, pending_df):
@@ -169,14 +169,14 @@ def resolve_name_changes(name_changes, pending_df):
             continue
 
         print(f"\nItem_Code {code}: '{c['Old_Value']}' -> '{c['New_Value']}'")
-        answer = input("  I-apply na ba ang rename na ito ngayon? (yes = apply / no = i-defer sa Pending Verification): ").strip().lower()
+        answer = input("  Apply this rename now? (yes = apply / no = defer to Pending Verification): ").strip().lower()
         if answer == 'yes':
             confirmed.append(c)
         else:
             newly_deferred.append(c)
 
     if already_pending:
-        print(f"\n{len(already_pending)} name change(s) ay AUTO-SKIPPED (naka-pending na verification mula sa nakaraang run):")
+        print(f"\n{len(already_pending)} name change(s) AUTO-SKIPPED (already pending verification from a previous run):")
         for c in already_pending:
             print(f"  {c['Item_Code']}: '{c['Old_Value']}' -> '{c['New_Value']}'")
 
@@ -204,7 +204,7 @@ def apply_changes(df_master, price_changes, name_changes, discontinued):
         mask = df_master['Item_Code'] == c['Item_Code']
         df_master.loc[mask, 'Status'] = 'DISCONTINUED'
         df_master.loc[mask, 'Discontinued_Date'] = today
-        df_master.loc[mask, 'Discontinued_Reason'] = 'Wala na sa BITPOS export -- awtomatikong na-detect ng Sync_BITPOS_Prices.py'
+        df_master.loc[mask, 'Discontinued_Reason'] = 'No longer in the BITPOS export -- automatically detected by Sync_BITPOS_Prices.py'
 
     return df_master
 
@@ -223,7 +223,7 @@ def update_pending_file(pending_df, newly_deferred, resolved_codes):
             'New_Name': c['New_Value'],
             'Flagged_Date': today,
             'Status': 'PENDING',
-            'Note': 'Wala pang stock/verification opportunity -- i-verify sa susunod na stock-in.',
+            'Note': 'No stock/verification opportunity yet -- verify on the next stock-in.',
         } for c in newly_deferred])
         pending_df = pd.concat([pending_df, new_rows], ignore_index=True)
 
@@ -268,28 +268,28 @@ def main():
     price_changes, name_changes, discontinued = detect_changes(df_master, df_bitpos)
 
     if not price_changes and not name_changes and not discontinued:
-        print('\nWalang pagkakaiba -- Master ay tugma na sa BITPOS export.')
+        print('\nNo differences -- Master already matches the BITPOS export.')
         return
 
     print_preview(price_changes, name_changes, discontinued)
     preview_path = save_preview_report(price_changes, name_changes, discontinued)
-    print(f'\nBuong preview na-save din sa: {preview_path}')
+    print(f'\nFull preview also saved to: {preview_path}')
 
     pending_df = load_pending()
     confirmed_names, newly_deferred, already_pending = resolve_name_changes(name_changes, pending_df)
 
-    print('\n--- FINAL SUMMARY BAGO I-APPLY ---')
+    print('\n--- FINAL SUMMARY BEFORE APPLYING ---')
     print(f'Price changes: {len(price_changes)}')
-    print(f'Name changes na i-a-apply ngayon: {len(confirmed_names)}')
-    print(f'Name changes na i-de-defer sa Pending Verification: {len(newly_deferred)}')
-    print(f'Name changes na auto-skipped (dati nang pending): {len(already_pending)}')
-    print(f'Bagong discontinued: {len(discontinued)}')
+    print(f'Name changes to apply now: {len(confirmed_names)}')
+    print(f'Name changes to defer to Pending Verification: {len(newly_deferred)}')
+    print(f'Name changes auto-skipped (already pending): {len(already_pending)}')
+    print(f'Newly discontinued: {len(discontinued)}')
 
-    answer = input('\nItuloy ba at i-apply ang mga NAKUMPIRMANG pagbabago sa Master (price, approved name changes, discontinued)? (yes/no): ').strip().lower()
+    answer = input('\nProceed and apply the CONFIRMED changes to Master (price, approved name changes, discontinued)? (yes/no): ').strip().lower()
     if answer != 'yes':
-        print('\nKINANSELA. Walang na-apply na pagbabago sa Master.')
+        print('\nCANCELLED. No changes were applied to Master.')
         if newly_deferred:
-            print('Note: hindi rin na-save sa Pending Verification list ang mga i-de-defer -- i-rerun ang script kung gusto mo pa ring i-record ang mga ito.')
+            print('Note: the deferred items were also not saved to the Pending Verification list -- re-run the script if you still want to record them.')
         return
 
     backup_path = backup_master()
@@ -312,12 +312,12 @@ def main():
         all_changes += [{**c, 'Change_Type': 'NAME_DEFERRED'} for c in newly_deferred]
     append_audit_log(all_changes, source_file)
 
-    print(f'\nNA-APPLY: {len(price_changes)} price change/s, {len(confirmed_names)} name change/s, '
-          f'{len(discontinued)} bagong discontinued item/s.')
+    print(f'\nAPPLIED: {len(price_changes)} price change(s), {len(confirmed_names)} name change(s), '
+          f'{len(discontinued)} newly discontinued item(s).')
     if newly_deferred:
-        print(f'{len(newly_deferred)} name change/s na-save sa Pending Verification list: {PENDING_PATH}')
+        print(f'{len(newly_deferred)} name change(s) saved to the Pending Verification list: {PENDING_PATH}')
     print(f'Audit trail appended to: {AUDIT_LOG_PATH}')
-    print('Current_Stock ay hindi ginalaw.')
+    print('Current_Stock was not touched.')
 
 
 if __name__ == '__main__':

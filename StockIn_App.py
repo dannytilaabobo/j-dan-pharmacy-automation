@@ -98,12 +98,12 @@ def add_to_staging_list():
 
     if qty_float > 5000:
         confirm_large = messagebox.askyesno(
-            "⚠️ HINDI PANGKARANIWANG KALAKIHAN",
+            "⚠️ UNUSUALLY LARGE QUANTITY",
             f"Product: {prod}\n"
-            f"Naitype na Quantity: {qty_float:,.0f}\n\n"
-            f"Paki-verify muna na TAMA ito bago ituloy -- baka natype ang bilang "
-            f"ng BOXES imbes na PIRASO, o may sobrang digit na naisama.\n\n"
-            f"Ituloy pa rin ba ang pag-add nito sa staging batch?"
+            f"Quantity entered: {qty_float:,.0f}\n\n"
+            f"Please verify this is CORRECT before proceeding -- the number of "
+            f"BOXES may have been typed instead of PIECES, or an extra digit may have been included.\n\n"
+            f"Add this to the staging batch anyway?"
         )
         if not confirm_large:
             return

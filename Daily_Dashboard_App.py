@@ -15,7 +15,7 @@ import shutil
 # ==========================================
 def handle_exception(exc_type, exc_value, exc_traceback):
     err_msg = "".join(traceback.format_exception(exc_type, exc_value, exc_traceback))
-    messagebox.showerror("System Critical Error", f"Nakatagpo ng error ang system. Paki-screenshot ito at ipadala sa Admin:\n\n{err_msg}")
+    messagebox.showerror("System Critical Error", f"The system encountered an error. Please screenshot this and send it to the Admin:\n\n{err_msg}")
     
 sys.excepthook = handle_exception
 warnings.filterwarnings('ignore', category=UserWarning, module='openpyxl')
@@ -317,7 +317,7 @@ def launch_stratifier_ui(target_date, df_stockin, df_sales, df_pullout, df_final
         try:
             df_master_live = pd.read_excel(master_file, sheet_name='INVENTORY MASTER')
         except PermissionError:
-            messagebox.showerror("Inventory Locked", f"Hindi ma-reconcile ang {master_file} dahil bukas ito sa Excel. Isara muna at i-FINALIZE ulit.")
+            messagebox.showerror("Inventory Locked", f"Cannot reconcile {master_file} because it is open in Excel. Please close it and FINALIZE again.")
             return
         df_master_live['Current_Stock'] = pd.to_numeric(df_master_live['Current_Stock'], errors='coerce').fillna(0)
 
@@ -369,7 +369,7 @@ def launch_stratifier_ui(target_date, df_stockin, df_sales, df_pullout, df_final
                 with pd.ExcelWriter(master_file, engine='openpyxl', mode='w') as writer:
                     df_master_live.to_excel(writer, sheet_name='INVENTORY MASTER', index=False)
             except PermissionError:
-                messagebox.showerror("Inventory Locked", f"Hindi na-save ang reconciliation dahil bukas ang {master_file}. Isara at i-FINALIZE ulit.")
+                messagebox.showerror("Inventory Locked", f"The reconciliation was not saved because {master_file} is open. Please close it and FINALIZE again.")
                 return
 
             reconcile_time = datetime.datetime.now().strftime('%Y-%m-%d %I:%M %p')
@@ -437,11 +437,11 @@ def export_final_report(target_date, df_stockin, df_sales, df_pullout, df_final_
             df_final_inventory.to_excel(writer, sheet_name='4_FINAL_INVENTORY', index=False)
             df_top_20_sod.to_excel(writer, sheet_name='5_SOD_AUDIT_REPORT', index=False)
             
-        messagebox.showinfo("Export Success", f"EOD Report and Stratification complete!\n\n1. File Saved: {report_name}\n2. SOD Report naka-queue na sa background para mag-sync sa Google Sheets.")
+        messagebox.showinfo("Export Success", f"EOD Report and Stratification complete!\n\n1. File Saved: {report_name}\n2. SOD Report is queued in the background to sync to Google Sheets.")
         return True
             
     except PermissionError:
-        messagebox.showerror("Permission Error", "Hindi ma-save ang report dahil nakabukas pa ang Excel file na kapangalan nito. Pakisara muna ang Excel.")
+        messagebox.showerror("Permission Error", "The report could not be saved because a file with the same name is still open in Excel. Please close Excel first.")
         return False
     except Exception as e:
         messagebox.showerror("Export Error", f"Failed to save the report.\n\nError Details: {e}")

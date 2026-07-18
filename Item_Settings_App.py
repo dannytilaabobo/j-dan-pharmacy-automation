@@ -13,7 +13,7 @@ import traceback
 # ==========================================
 def handle_exception(exc_type, exc_value, exc_traceback):
     err_msg = "".join(traceback.format_exception(exc_type, exc_value, exc_traceback))
-    messagebox.showerror("System Critical Error", f"Nakatagpo ng error ang system. Paki-screenshot ito at ipadala sa Admin:\n\n{err_msg}")
+    messagebox.showerror("System Critical Error", f"The system encountered an error. Please screenshot this and send it to the Admin:\n\n{err_msg}")
 
 sys.excepthook = handle_exception
 
@@ -54,8 +54,13 @@ CATEGORY_LIST = [
     'MAINTENANCE MEDS', 'PAIN & FEVER RELIEF', 'COUGH, COLD & ALLERGY',
     'GI / DIGESTIVE CARE', 'VITAMINS & SUPPLEMENTS', 'WOUND CARE & TOPICALS',
     'BABY CARE', 'FEMININE CARE', 'PERSONAL CARE & COSMETICS',
-    'MEDICAL SUPPLIES & DEVICES', 'HOUSEHOLD & GROCERY', 'OTHERS / UNCATEGORIZED',
+    'MEDICAL SUPPLIES & DEVICES', 'HOUSEHOLD & GROCERY', 'ANTIBIOTICS',
+    'GENERAL MERCHANDISE', 'OTHERS / UNCATEGORIZED',
 ]
+
+# Medicine-only attribute: blank/N-A is valid and expected for non-medicine
+# items (General Merchandise, Personal Care, etc.) -- never forced.
+IS_GENERIC_OPTIONS = ['(N/A)', 'GENERIC', 'BRANDED']
 
 
 def norm(s):
@@ -93,6 +98,9 @@ def load_working_data():
     if 'Category' not in df.columns:
         df['Category'] = ''
     df['Category'] = df['Category'].fillna('').astype(str).str.strip()
+    if 'Is_Generic' not in df.columns:
+        df['Is_Generic'] = ''
+    df['Is_Generic'] = df['Is_Generic'].fillna('').astype(str).str.strip().str.upper()
 
     # Item_Code is the only stable identifier -- Product_Name can drift
     # (typos, spelling variants) across a code's lot rows, so grouping by
@@ -113,6 +121,7 @@ def load_working_data():
         Reorder_Point=('Reorder_Point', 'first'),
         Supplier=('Supplier', 'first'),
         Category=('Category', 'first'),
+        Is_Generic=('Is_Generic', 'first'),
     ).reset_index()
     agg['Product_Name'] = agg['Item_Code'].map(representative_name)
     agg['Name_Inconsistent'] = agg['Item_Code'].isin(inconsistent_codes)
@@ -126,7 +135,7 @@ def load_working_data():
 
 
 working_df = load_working_data()
-pending_edits = {}  # Item_Code -> {'Reorder_Point': x, 'Supplier': y, 'Category': z}
+pending_edits = {}  # Item_Code -> {'Reorder_Point': x, 'Supplier': y, 'Category': z, 'Is_Generic': w}
 
 
 def refresh_progress_label():
@@ -137,7 +146,7 @@ def refresh_progress_label():
     pending_count = len(pending_edits)
     progress_label.config(
         text=f"Supplier: {supplier_filled}/{total}   |   Category: {category_filled}/{total}   |   "
-             f"Kumpleto (parehong Category+Supplier): {fully_set}/{total}"
+             f"Complete (both Category+Supplier): {fully_set}/{total}"
              + (f"   |   {pending_count} unsaved edit(s)" if pending_count else "")
     )
     save_all_btn.config(state='normal' if pending_edits else 'disabled')
@@ -157,18 +166,19 @@ def populate_tree():
     for _, row in working_df.iterrows():
         if not matches_search(row, query):
             continue
-        supplier_display = row['Supplier'] if row['Supplier'] else '(blangko)'
-        category_display = row['Category'] if row['Category'] else '(blangko)'
+        supplier_display = row['Supplier'] if row['Supplier'] else '(blank)'
+        category_display = row['Category'] if row['Category'] else '(blank)'
+        is_generic_display = row['Is_Generic'] if row['Is_Generic'] else '(N/A)'
         product_display = row['Product_Name']
         if row['Name_Inconsistent']:
-            product_display = f"⚠️ {product_display} (magkaibang spelling sa Master)"
+            product_display = f"⚠️ {product_display} (inconsistent spelling in Master)"
             name_conflicts.append((row['Item_Code'], row['Product_Name']))
         is_unassigned = not row['Supplier'] or not row['Category']
         tag = 'inconsistent' if row['Name_Inconsistent'] else ('unassigned' if is_unassigned else '')
         tree.insert('', tk.END, iid=str(row['Item_Code']), values=(
             int(row['Rank']), row['Item_Code'], product_display,
             f"{row['Total_Qty_Sold']:.0f}", f"{row['Current_Stock']:.0f}",
-            f"{row['Reorder_Point']:.0f}", category_display, supplier_display,
+            f"{row['Reorder_Point']:.0f}", category_display, supplier_display, is_generic_display,
         ), tags=(tag,) if tag else ())
     refresh_progress_label()
     return name_conflicts
@@ -178,7 +188,7 @@ def open_editor(item_code=None):
     if item_code is None:
         selected = tree.selection()
         if not selected:
-            messagebox.showwarning("Walang Napili", "Pumili muna ng item sa listahan.")
+            messagebox.showwarning("No Selection", "Please select an item from the list first.")
             return
         item_code = selected[0]
 
@@ -188,8 +198,8 @@ def open_editor(item_code=None):
     row = row_match.iloc[0]
 
     win = tk.Toplevel(root)
-    win.title(f"I-edit: {row['Product_Name']}")
-    win.geometry("500x320")
+    win.title(f"Edit: {row['Product_Name']}")
+    win.geometry("500x400")
     win.configure(bg="#eaeded")
     win.grab_set()
 
@@ -215,20 +225,35 @@ def open_editor(item_code=None):
     reorder_entry.insert(0, f"{row['Reorder_Point']:.0f}")
     reorder_entry.grid(row=2, column=1, sticky="w", pady=8, padx=5)
 
+    tk.Label(form, text="Generic/Branded\n(medicines only, optional):", font=("Arial", 10, "bold"), bg="#eaeded", justify="left").grid(row=3, column=0, sticky="w", pady=8, padx=5)
+    is_generic_var = tk.StringVar(value=row['Is_Generic'] if row['Is_Generic'] else '(N/A)')
+    is_generic_frame = tk.Frame(form, bg="#eaeded")
+    is_generic_frame.grid(row=3, column=1, sticky="w", pady=8, padx=5)
+    for option in IS_GENERIC_OPTIONS:
+        tk.Radiobutton(is_generic_frame, text=option, variable=is_generic_var, value=option,
+                        bg="#eaeded", font=("Arial", 9)).pack(anchor="w")
+
     def save_and_close():
         try:
             new_reorder = float(reorder_entry.get().strip())
         except ValueError:
-            messagebox.showerror("Invalid Input", "Ang Reorder Point ay dapat numero.")
+            messagebox.showerror("Invalid Input", "Reorder Point must be a number.")
             return
         new_supplier = supplier_combo.get().strip()
         new_category = category_combo.get().strip()
+        new_is_generic = is_generic_var.get()
+        if new_is_generic == '(N/A)':
+            new_is_generic = ''
 
         idx = working_df.index[working_df['Item_Code'] == row['Item_Code']][0]
         working_df.at[idx, 'Reorder_Point'] = new_reorder
         working_df.at[idx, 'Supplier'] = new_supplier
         working_df.at[idx, 'Category'] = new_category
-        pending_edits[row['Item_Code']] = {'Reorder_Point': new_reorder, 'Supplier': new_supplier, 'Category': new_category}
+        working_df.at[idx, 'Is_Generic'] = new_is_generic
+        pending_edits[row['Item_Code']] = {
+            'Reorder_Point': new_reorder, 'Supplier': new_supplier,
+            'Category': new_category, 'Is_Generic': new_is_generic,
+        }
 
         populate_tree()
         win.destroy()
@@ -236,7 +261,7 @@ def open_editor(item_code=None):
 
     btn_frame = tk.Frame(win, bg="#eaeded")
     btn_frame.pack(pady=15)
-    tk.Button(btn_frame, text="💾 SAVE (sa listahan lang, hindi pa sa file)", font=("Arial", 10, "bold"),
+    tk.Button(btn_frame, text="💾 SAVE (to list only, not yet to file)", font=("Arial", 10, "bold"),
               bg="#28a745", fg="white", command=save_and_close).grid(row=0, column=0, padx=5)
     tk.Button(btn_frame, text="Cancel", font=("Arial", 10), bg="#6c757d", fg="white", command=win.destroy).grid(row=0, column=1, padx=5)
 
@@ -257,7 +282,7 @@ def select_next_unassigned(after_item_code=None):
                 tree.selection_set(iid)
                 tree.see(iid)
                 return
-    messagebox.showinfo("Tapos na!", "Lahat ng items sa kasalukuyang listahan ay may Category at Supplier na.")
+    messagebox.showinfo("All Done!", "Every item in the current list already has a Category and Supplier.")
 
 
 def on_search_change(*args):
@@ -266,19 +291,19 @@ def on_search_change(*args):
 
 def save_all_to_master():
     if not pending_edits:
-        messagebox.showinfo("Wala pang Edit", "Wala pang binago na i-se-save.")
+        messagebox.showinfo("No Edits Yet", "There are no changes to save yet.")
         return
-    if not messagebox.askyesno("Kumpirmahin", f"I-save ang {len(pending_edits)} item(s) na binago papunta sa {MASTER_FILE}?"):
+    if not messagebox.askyesno("Confirm", f"Save {len(pending_edits)} changed item(s) to {MASTER_FILE}?"):
         return
 
     try:
         df_master = pd.read_excel(MASTER_FILE, sheet_name='INVENTORY MASTER')
     except PermissionError:
-        messagebox.showerror("File In Use", f"Isara muna ang {MASTER_FILE} sa Excel bago mag-save.")
+        messagebox.showerror("File In Use", f"Please close {MASTER_FILE} in Excel first before saving.")
         return
 
     df_master['Item_Code'] = df_master['Item_Code'].astype(str)
-    for col, default in [('Reorder_Point', 10), ('Supplier', ''), ('Category', '')]:
+    for col, default in [('Reorder_Point', 10), ('Supplier', ''), ('Category', ''), ('Is_Generic', '')]:
         if col not in df_master.columns:
             df_master[col] = default
 
@@ -287,6 +312,7 @@ def save_all_to_master():
         df_master.loc[mask, 'Reorder_Point'] = edit['Reorder_Point']
         df_master.loc[mask, 'Supplier'] = edit['Supplier']
         df_master.loc[mask, 'Category'] = edit['Category']
+        df_master.loc[mask, 'Is_Generic'] = edit['Is_Generic']
 
     os.makedirs(BACKUP_DIR, exist_ok=True)
     ts = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
@@ -296,16 +322,17 @@ def save_all_to_master():
         with pd.ExcelWriter(MASTER_FILE, engine='openpyxl', mode='w') as writer:
             df_master.to_excel(writer, sheet_name='INVENTORY MASTER', index=False)
     except PermissionError:
-        messagebox.showerror("File In Use", f"Isara muna ang {MASTER_FILE} sa Excel. Hindi na-save ang mga pagbabago.")
+        messagebox.showerror("File In Use", f"Please close {MASTER_FILE} in Excel. The changes were not saved.")
         return
 
     log_time = datetime.datetime.now().strftime('%Y-%m-%d %I:%M %p')
     with open("JDan_System_Logs.txt", "a") as logbook:
         logbook.write(f"[{log_time}] - ITEM SETTINGS UPDATE by {staff_name.upper()} ({len(pending_edits)} item/s)\n")
         for code, edit in pending_edits.items():
-            logbook.write(f"   -> {code}: Category={edit['Category']}, Supplier={edit['Supplier']}, Reorder_Point={edit['Reorder_Point']:.0f}\n")
+            logbook.write(f"   -> {code}: Category={edit['Category']}, Supplier={edit['Supplier']}, "
+                          f"Reorder_Point={edit['Reorder_Point']:.0f}, Is_Generic={edit['Is_Generic'] or '(N/A)'}\n")
 
-    messagebox.showinfo("Na-save!", f"{len(pending_edits)} item(s) na-save sa {MASTER_FILE}.")
+    messagebox.showinfo("Saved!", f"{len(pending_edits)} item(s) saved to {MASTER_FILE}.")
     pending_edits.clear()
     refresh_progress_label()
 
@@ -327,7 +354,7 @@ progress_label.pack(pady=8)
 
 search_frame = tk.Frame(root, bg="#f4f4f4")
 search_frame.pack(pady=(0, 5))
-tk.Label(search_frame, text="🔍 Hanapin (pangalan o Item Code):", font=("Arial", 9), bg="#f4f4f4").pack(side="left", padx=5)
+tk.Label(search_frame, text="🔍 Search (name or Item Code):", font=("Arial", 9), bg="#f4f4f4").pack(side="left", padx=5)
 search_var = tk.StringVar()
 search_var.trace_add('write', on_search_change)
 search_entry = tk.Entry(search_frame, textvariable=search_var, font=("Arial", 10), width=40)
@@ -346,7 +373,7 @@ tree_frame.pack(pady=10, padx=20, fill="both", expand=True)
 tree_scroll = ttk.Scrollbar(tree_frame, orient="vertical")
 tree_scroll.pack(side="right", fill="y")
 
-columns = ("Rank", "Code", "Product", "Sold", "Stock", "Reorder", "Category", "Supplier")
+columns = ("Rank", "Code", "Product", "Sold", "Stock", "Reorder", "Category", "Supplier", "IsGeneric")
 tree = ttk.Treeview(tree_frame, columns=columns, show="headings", height=25, yscrollcommand=tree_scroll.set)
 tree_scroll.config(command=tree.yview)
 
@@ -358,15 +385,17 @@ tree.heading("Stock", text="Current Stock")
 tree.heading("Reorder", text="Reorder Point")
 tree.heading("Category", text="Category")
 tree.heading("Supplier", text="Supplier")
+tree.heading("IsGeneric", text="Generic/Branded")
 
 tree.column("Rank", width=50, anchor='center')
 tree.column("Code", width=90, anchor='center')
-tree.column("Product", width=280)
-tree.column("Sold", width=75, anchor='center')
-tree.column("Stock", width=85, anchor='center')
-tree.column("Reorder", width=85, anchor='center')
-tree.column("Category", width=160)
-tree.column("Supplier", width=140)
+tree.column("Product", width=260)
+tree.column("Sold", width=70, anchor='center')
+tree.column("Stock", width=80, anchor='center')
+tree.column("Reorder", width=80, anchor='center')
+tree.column("Category", width=150)
+tree.column("Supplier", width=130)
+tree.column("IsGeneric", width=100, anchor='center')
 
 tree.tag_configure('unassigned', background="#fff3cd")
 tree.tag_configure('inconsistent', background="#f8d7da")
@@ -381,12 +410,12 @@ tk.Label(footer_frame, text=f"Authorized System User: {staff_name.upper()}", fon
 startup_conflicts = populate_tree()
 if startup_conflicts:
     conflict_lines = "\n".join(f"  {code}: {name}" for code, name in startup_conflicts[:15])
-    more = f"\n  ... at {len(startup_conflicts) - 15} pa" if len(startup_conflicts) > 15 else ""
+    more = f"\n  ... and {len(startup_conflicts) - 15} more" if len(startup_conflicts) > 15 else ""
     messagebox.showwarning(
-        "Magkaibang Spelling sa Ilalim ng Parehong Item_Code",
-        f"{len(startup_conflicts)} item(s) ang may magkaibang Product_Name spelling sa iba't ibang lot row nito sa Master "
-        f"(pinag-isa muna sila dito gamit ang pinaka-madalas na spelling):\n\n{conflict_lines}{more}\n\n"
-        f"Rekomendasyon: ayusin ang typo sa Master (i-standardize ang spelling) para hindi ito maulit."
+        "Inconsistent Spelling Under the Same Item_Code",
+        f"{len(startup_conflicts)} item(s) have inconsistent Product_Name spelling across their lot rows in Master "
+        f"(merged here using the most common spelling for now):\n\n{conflict_lines}{more}\n\n"
+        f"Recommendation: fix the typo in Master (standardize the spelling) so this doesn't recur."
     )
 
 root.mainloop()

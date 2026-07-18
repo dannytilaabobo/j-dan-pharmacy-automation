@@ -11,7 +11,7 @@ import traceback
 # ==========================================
 def handle_exception(exc_type, exc_value, exc_traceback):
     err_msg = "".join(traceback.format_exception(exc_type, exc_value, exc_traceback))
-    messagebox.showerror("System Critical Error", f"Nakatagpo ng error ang system. Paki-screenshot ito at ipadala sa Admin:\n\n{err_msg}")
+    messagebox.showerror("System Critical Error", f"The system encountered an error. Please screenshot this and send it to the Admin:\n\n{err_msg}")
 
 sys.excepthook = handle_exception
 
@@ -52,10 +52,10 @@ def run_scan():
     try:
         df = pd.read_excel(MASTER_FILE, sheet_name='INVENTORY MASTER')
     except PermissionError:
-        messagebox.showerror("File In Use", f"Isara muna ang {MASTER_FILE} sa Excel bago mag-scan.")
+        messagebox.showerror("File In Use", f"Please close {MASTER_FILE} in Excel first before scanning.")
         return
     except Exception as e:
-        messagebox.showerror("Error", f"Hindi mabuksan ang {MASTER_FILE}.\n\nDetalye: {e}")
+        messagebox.showerror("Error", f"Could not open {MASTER_FILE}.\n\nDetails: {e}")
         return
 
     if 'Status' in df.columns:
@@ -110,23 +110,23 @@ def populate_tree(low_stock, inconsistent_display):
     tree.delete(*tree.get_children())
 
     if low_stock.empty:
-        tree.insert('', tk.END, values=('Walang item na paubos ngayon.', '', '', '', ''), tags=('info',))
+        tree.insert('', tk.END, values=('No items are low on stock right now.', '', '', '', ''), tags=('info',))
     else:
         for supplier, group in low_stock.groupby('Supplier_Group', sort=False):
-            tree.insert('', tk.END, values=(f'--- {supplier} ({len(group)} item/s) ---', '', '', '', ''), tags=('group_header',))
+            tree.insert('', tk.END, values=(f'--- {supplier} ({len(group)} item(s)) ---', '', '', '', ''), tags=('group_header',))
             for _, row in group.iterrows():
                 tree.insert('', tk.END, values=(
                     row['Item_Code'], row['Product_Name'], f"{row['Current_Stock']:.0f}",
                     f"{row['Reorder_Point']:.0f}", f"{row['Suggested_Order_Qty']:.0f}",
                 ))
 
-    summary = f"{len(low_stock)} item/s na paubos"
+    summary = f"{len(low_stock)} item(s) low on stock"
     if not low_stock.empty:
         unassigned_count = (low_stock['Supplier_Group'] == UNASSIGNED_LABEL).sum()
-        summary += f" | {unassigned_count} walang naka-assign na supplier"
+        summary += f" | {unassigned_count} with no supplier assigned"
     if inconsistent_display:
-        summary += f" | ⚠️ {len(inconsistent_display)} item may hindi magkatugmang Reorder_Point/Supplier/pangalan sa iba't ibang lot"
-    summary += f" | Huling scan: {datetime.datetime.now().strftime('%Y-%m-%d %I:%M %p')}"
+        summary += f" | ⚠️ {len(inconsistent_display)} item(s) with mismatched Reorder_Point/Supplier/name across lots"
+    summary += f" | Last scan: {datetime.datetime.now().strftime('%Y-%m-%d %I:%M %p')}"
     summary_label.config(text=summary)
 
     export_btn.config(state='normal' if not low_stock.empty else 'disabled')
@@ -134,17 +134,17 @@ def populate_tree(low_stock, inconsistent_display):
     if inconsistent_display:
         messagebox.showwarning(
             "Data Inconsistency Detected",
-            "May mga item na magkaiba ang Reorder_Point, Supplier, o Product_Name (typo) sa iba't ibang lot row nito sa Master "
-            "(dapat iisa lang ito per product):\n\n" + "\n".join(inconsistent_display[:15]) +
-            ("\n... at iba pa" if len(inconsistent_display) > 15 else "")
+            "Some items have mismatched Reorder_Point, Supplier, or Product_Name (typo) across their lot rows in Master "
+            "(should be one value per product):\n\n" + "\n".join(inconsistent_display[:15]) +
+            ("\n... and more" if len(inconsistent_display) > 15 else "")
         )
 
 
 def export_list():
     if last_scan_results is None or last_scan_results.empty:
-        messagebox.showinfo("Walang I-eexport", "Wala pang scan result na pwedeng i-export.")
+        messagebox.showinfo("Nothing to Export", "There is no scan result to export yet.")
         return
-    if not messagebox.askyesno("Kumpirmahin", "I-export ang restock list bilang Excel file?"):
+    if not messagebox.askyesno("Confirm", "Export the restock list as an Excel file?"):
         return
 
     os.makedirs(REPORT_DIR, exist_ok=True)
@@ -152,7 +152,7 @@ def export_list():
     export_df = last_scan_results[['Supplier_Group', 'Item_Code', 'Product_Name', 'Current_Stock', 'Reorder_Point', 'Suggested_Order_Qty']].copy()
     export_df.columns = ['Supplier', 'Item_Code', 'Product_Name', 'Current_Stock', 'Reorder_Point', 'Suggested_Order_Qty']
     export_df.to_excel(out_path, index=False)
-    messagebox.showinfo("Na-export", f"Na-save ang restock list sa:\n{out_path}")
+    messagebox.showinfo("Exported", f"Restock list saved to:\n{out_path}")
 
 
 # ==========================================
@@ -173,7 +173,7 @@ tk.Button(btn_frame, text="🔍 SCAN NOW", font=("Helvetica", 11, "bold"), bg="#
 export_btn = tk.Button(btn_frame, text="📤 EXPORT LIST (Optional)", font=("Helvetica", 11, "bold"), bg="#f0ad4e", fg="white", width=25, height=2, state='disabled', command=export_list)
 export_btn.grid(row=0, column=1, padx=10)
 
-summary_label = tk.Label(root, text="Pindutin ang SCAN NOW para makita ang mga paubos na items.", bg="#f4f4f4", font=("Arial", 9, "italic"), fg="#566573")
+summary_label = tk.Label(root, text="Click SCAN NOW to see items that are low on stock.", bg="#f4f4f4", font=("Arial", 9, "italic"), fg="#566573")
 summary_label.pack(pady=(0, 5))
 
 tree_frame = tk.Frame(root, bg="#f4f4f4")

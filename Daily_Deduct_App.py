@@ -16,7 +16,7 @@ from name_cleaning import clean_text
 # ==========================================
 def handle_exception(exc_type, exc_value, exc_traceback):
     err_msg = "".join(traceback.format_exception(exc_type, exc_value, exc_traceback))
-    messagebox.showerror("System Critical Error", f"Nakatagpo ng error ang system. Paki-screenshot ito at ipadala sa Admin:\n\n{err_msg}")
+    messagebox.showerror("System Critical Error", f"The system encountered an error. Please screenshot this and send it to the Admin:\n\n{err_msg}")
     
 sys.excepthook = handle_exception
 warnings.filterwarnings('ignore', category=UserWarning, module='openpyxl')
@@ -53,7 +53,7 @@ def read_pos_file(filepath):
             break
             
     if header_idx is None:
-        raise ValueError("Hindi mahanap ang 'ITEM CODE' o 'QTY' columns sa file.\nSiguraduhing EOD SALES REPORT ito.")
+        raise ValueError("Could not find 'ITEM CODE' or 'QTY' columns in the file.\nPlease make sure this is an EOD SALES REPORT.")
 
     df = df_raw.iloc[header_idx+1:].copy()
     df.columns = [str(x).strip().title() for x in df_raw.iloc[header_idx].values]
@@ -210,10 +210,10 @@ class EODSettlementApp:
             z_diff = z_reading - self.system_total_sales
             ans = simpledialog.askstring(
                 "Z-Reading Mismatch Detected", 
-                f"Magkaiba ang Z-Reading Tape (₱{z_reading:,.2f}) at System CSV Export (₱{self.system_total_sales:,.2f}).\n\nMay variance na ₱{z_diff:,.2f}. Marahil ito ay GCash Fee o Special Charge.\n\nPara makatuloy, i-type ang justification (Halimbawa: 'GCash Fee'):"
+                f"The Z-Reading Tape (₱{z_reading:,.2f}) and System CSV Export (₱{self.system_total_sales:,.2f}) do not match.\n\nThere is a variance of ₱{z_diff:,.2f}. This may be a GCash Fee or Special Charge.\n\nTo proceed, please type the justification (e.g. 'GCash Fee'):"
             )
             if not ans or ans.strip() == "":
-                messagebox.showerror("Process Aborted", "Kailangan ng justification para sa Z-Reading Mismatch.")
+                messagebox.showerror("Process Aborted", "A justification is required for the Z-Reading Mismatch.")
                 return
             self.z_reading_justification = f"Mismatch (Diff: {z_diff:,.2f}) - Reason: {ans}"
 
@@ -298,7 +298,7 @@ class EODSettlementApp:
                         df_master.to_excel(writer, sheet_name='INVENTORY MASTER', index=False)
                     sync_success = True
             except PermissionError:
-                messagebox.showerror("Inventory Locked", f"CRITICAL: Hindi nabawasan ang {MASTER_FILE} dahil kasalukuyan itong NAKABUKAS sa PC mo. Pakisara ang Excel file at i-run ulit ang EOD.")
+                messagebox.showerror("Inventory Locked", f"CRITICAL: {MASTER_FILE} was not deducted because it is currently OPEN on your PC. Please close the Excel file and run the EOD again.")
                 return
             except Exception as e:
                 print(f"Auto Sync Error: {e}")
@@ -352,13 +352,13 @@ class EODSettlementApp:
         try:
             archive_path = os.path.join(ARCHIVE_DIR, f"{base_name}_{timestamp_str}_{original_filename}")
             shutil.move(self.file_path, archive_path)
-            archive_status = "Awtomatikong inilipat ang POS file sa Archive."
+            archive_status = "The POS file was automatically moved to the Archive."
         except PermissionError:
-            archive_status = f"BABALA: Hindi nailipat ang '{original_filename}' dahil NAKABUKAS pa ito sa Excel. Pakisara at ilipat manual sa Archive folder."
+            archive_status = f"WARNING: '{original_filename}' was not moved because it is still OPEN in Excel. Please close it and move it to the Archive folder manually."
         except Exception as e:
-            archive_status = f"BABALA: Hindi nailipat ang POS file: {e}"
-        
-        messagebox.showinfo("EOD SUCCESS", f"Settlement Complete!\n\n1. Nag-generate ng report para sa: {base_name}\n2. Awtomatikong NABAWASAN na ang Live Master Inventory sa PC.\n3. Naka-queue na sa background para mag-sync sa Google Sheets.\n\n{archive_status}")
+            archive_status = f"WARNING: Could not move the POS file: {e}"
+
+        messagebox.showinfo("EOD SUCCESS", f"Settlement Complete!\n\n1. Generated report for: {base_name}\n2. The Live Master Inventory on this PC was automatically DEDUCTED.\n3. Queued in the background to sync to Google Sheets.\n\n{archive_status}")
         self.root.destroy()
 
 if __name__ == "__main__":

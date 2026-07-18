@@ -21,8 +21,13 @@ CATEGORY_LIST = [
     'MAINTENANCE MEDS', 'PAIN & FEVER RELIEF', 'COUGH, COLD & ALLERGY',
     'GI / DIGESTIVE CARE', 'VITAMINS & SUPPLEMENTS', 'WOUND CARE & TOPICALS',
     'BABY CARE', 'FEMININE CARE', 'PERSONAL CARE & COSMETICS',
-    'MEDICAL SUPPLIES & DEVICES', 'HOUSEHOLD & GROCERY', 'OTHERS / UNCATEGORIZED',
+    'MEDICAL SUPPLIES & DEVICES', 'HOUSEHOLD & GROCERY', 'ANTIBIOTICS',
+    'GENERAL MERCHANDISE', 'OTHERS / UNCATEGORIZED',
 ]
+
+# Medicine-only attribute: GENERIC, BRANDED, or blank/N-A for non-medicine
+# items (General Merchandise, Personal Care, etc.) -- never forced.
+IS_GENERIC_OPTIONS = ['', 'GENERIC', 'BRANDED']
 
 # How far past the current row count to extend the Supplier dropdown, so
 # rows added later by StockIn_App still get the picker without re-running this.
@@ -77,6 +82,12 @@ def main():
     else:
         print('Category column already existed -- left existing values as-is.')
 
+    if 'Is_Generic' not in df.columns:
+        df['Is_Generic'] = ''
+        added_cols.append('Is_Generic')
+    else:
+        print('Is_Generic column already existed -- left existing values as-is.')
+
     try:
         with pd.ExcelWriter(MASTER_FILE, engine='openpyxl', mode='w') as writer:
             df.to_excel(writer, sheet_name='INVENTORY MASTER', index=False)
@@ -98,12 +109,13 @@ def main():
     headers = [str(c.value).strip() if c.value else '' for c in ws[1]]
     last_row = max(ws.max_row, 2) + DROPDOWN_ROW_BUFFER
 
-    for col_name, options in [('Supplier', SUPPLIER_LIST), ('Category', CATEGORY_LIST)]:
+    for col_name, options in [('Supplier', SUPPLIER_LIST), ('Category', CATEGORY_LIST), ('Is_Generic', IS_GENERIC_OPTIONS)]:
         col_idx = headers.index(col_name) + 1
         col_letter = get_column_letter(col_idx)
+        list_options = [o for o in options if o]  # allow_blank already covers the blank/N-A case
         dv = DataValidation(
             type='list',
-            formula1='"' + ','.join(options) + '"',
+            formula1='"' + ','.join(list_options) + '"',
             allow_blank=True,
             showErrorMessage=False,
         )
@@ -115,6 +127,7 @@ def main():
 
     print(f"Supplier options: {', '.join(SUPPLIER_LIST)}")
     print(f"Category options: {', '.join(CATEGORY_LIST)}")
+    print(f"Is_Generic options: GENERIC, BRANDED, or blank/N-A (medicine-only, optional)")
     print(f"\nFinal columns: {df.columns.tolist()}")
     print(f"Total rows: {len(df)}")
 

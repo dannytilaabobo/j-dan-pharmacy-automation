@@ -9,17 +9,17 @@ print("=== J-DAN BULK DATE FIXER ===")
 root = tk.Tk()
 root.withdraw() # Itago ang main tkinter window para pop-up agad
 
-print("Pumili ng Excel file sa lalabas na window...")
+print("Please select the Excel file in the window that appears...")
 master_file = filedialog.askopenfilename(
-    title="J-DAN: Piliin ang iyong Inventory Excel File",
+    title="J-DAN: Select your Inventory Excel File",
     filetypes=[("Excel files", "*.xlsx")]
 )
 
 if not master_file:
-    print("\nWalang piniling file. Kina-cancel ang proseso.")
+    print("\nNo file was selected. Cancelling the process.")
 else:
-    print(f"\nFile na pinili: {master_file}")
-    print("Inaayos ang mga petsang pinalitan ni Excel...\n")
+    print(f"\nFile selected: {master_file}")
+    print("Fixing the dates that Excel altered...\n")
     try:
         # Siguraduhing nakasara ang file bago ito mag-run
         wb = openpyxl.load_workbook(master_file)
@@ -50,10 +50,10 @@ else:
                     fixed_count += 1
 
         wb.save(master_file)
-        print(f"SUCCESS! 🎉 Naayos nang awtomatiko ang {fixed_count} items sa iyong Excel.")
-        print("Maaari mo nang buksan ang iyong Excel file para i-check ang mga petsa.")
+        print(f"SUCCESS! 🎉 Automatically fixed {fixed_count} item(s) in your Excel file.")
+        print("You may now open your Excel file to check the dates.")
 
     except Exception as e:
-        print(f"ERROR: Hindi ma-process ang file. Siguraduhing NAKASARA ang Excel bago i-run ito.\nDetalye: {e}")
+        print(f"ERROR: Could not process the file. Please make sure Excel is CLOSED before running this.\nDetails: {e}")
 
-input("\nPress Enter para isara ang window...")
+input("\nPress Enter to close this window...")

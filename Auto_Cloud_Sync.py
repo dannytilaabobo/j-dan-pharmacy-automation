@@ -32,7 +32,7 @@ def setup_google_sheets():
     try:
         scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
         if not os.path.exists(JSON_KEY_FILE):
-            log_error(f"CRITICAL: Nawawala ang '{JSON_KEY_FILE}'. Hindi makaka-connect sa Google.")
+            log_error(f"CRITICAL: '{JSON_KEY_FILE}' is missing. Cannot connect to Google.")
             return None
             
         creds = ServiceAccountCredentials.from_json_keyfile_name(JSON_KEY_FILE, scope)
@@ -56,7 +56,7 @@ def run_sync(workbook):
     if not pending_files: 
         return
 
-    print(f"\n[{time.strftime('%H:%M:%S')}] Nakakita ng {len(pending_files)} pending files. Nagsi-sync sa cloud...")
+    print(f"\n[{time.strftime('%H:%M:%S')}] Found {len(pending_files)} pending file(s). Syncing to the cloud...")
 
     for filename in pending_files:
         file_path = os.path.join(PENDING_SYNC_DIR, filename)
@@ -92,14 +92,14 @@ def run_sync(workbook):
                 try:
                     os.remove(file_path)
                 except PermissionError:
-                    print(f" -> [WARNING] Hindi ma-delete ang {filename} ngayon.")
+                    print(f" -> [WARNING] Could not delete {filename} right now.")
             except gspread.exceptions.WorksheetNotFound:
-                print(f" -> [FAILED] Hindi mahanap ang tab na '{target_tab}' sa Google Sheets. Gumawa muna ng tab.")
-                
+                print(f" -> [FAILED] Could not find the tab '{target_tab}' in Google Sheets. Please create the tab first.")
+
         except json.JSONDecodeError:
-            print(f" -> [WAITING] Binabasa pa ang {filename} ng system.")
+            print(f" -> [WAITING] {filename} is still being written by the system.")
         except Exception as e:
-            error_details = f"Hindi ma-sync ang {filename}. Error: {e}"
+            error_details = f"Could not sync {filename}. Error: {e}"
             print(f" -> [FAILED] {error_details}")
             log_error(error_details, traceback.format_exc())
 
@@ -113,9 +113,9 @@ if __name__ == "__main__":
     active_workbook = setup_google_sheets()
     
     if active_workbook is None:
-        print("\nFATAL ERROR: Hindi maka-connect.")
+        print("\nFATAL ERROR: Could not connect.")
     else:
-        print("Connected successfully! Nakabantay na sa background...")
+        print("Connected successfully! Watching in the background...")
         while True:
             run_sync(active_workbook)
             time.sleep(30)

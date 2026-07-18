@@ -135,32 +135,32 @@ def main():
 
     print('=' * 70)
     print(' NAME INCONSISTENCY SCAN -- Inventory_Master.xlsx')
-    print(' (SCAN ONLY -- walang na-apply na correction)')
+    print(' (SCAN ONLY -- no correction has been applied)')
     print('=' * 70)
     print(f'Total rows scanned: {len(df)}')
 
     split_by_code = scan_split_by_code(df)
-    print(f'\n--- (1) SAME Item_Code, MAGKAIBANG Product_Name: {len(split_by_code)} code(s) ---')
+    print(f'\n--- (1) SAME Item_Code, DIFFERENT Product_Name: {len(split_by_code)} code(s) ---')
     if not split_by_code.empty:
         with pd.option_context('display.max_colwidth', 55, 'display.width', 250):
             print(split_by_code[['Item_Code', 'Total_Stock_Affected', 'Num_Variants', 'Baseline_Name', 'Issue_Type(s)']].to_string(index=False))
     else:
-        print('  Wala.')
+        print('  None.')
 
     same_name = scan_same_name_diff_code(df)
-    print(f'\n--- (2) SAME Product_Name, MAGKAIBANG Item_Code: {len(same_name)} name(s) ---')
+    print(f'\n--- (2) SAME Product_Name, DIFFERENT Item_Code: {len(same_name)} name(s) ---')
     if not same_name.empty:
         with pd.option_context('display.max_colwidth', 55, 'display.width', 250):
             print(same_name[['Product_Name', 'Num_Item_Codes', 'Total_Stock_Combined']].to_string(index=False))
     else:
-        print('  Wala.')
+        print('  None.')
 
     out_path = f'{REPORT_DIR}/NAME_INCONSISTENCY_SCAN_{datetime.datetime.now().strftime("%Y%m%d_%H%M%S")}.xlsx'
     with pd.ExcelWriter(out_path, engine='openpyxl') as writer:
         split_by_code.to_excel(writer, sheet_name='Same_Code_Diff_Name', index=False)
         same_name.to_excel(writer, sheet_name='Same_Name_Diff_Code', index=False)
     print(f'\nFull report saved to: {out_path}')
-    print('\nWala pang na-apply na correction -- scan lang ito.')
+    print('\nNo correction has been applied -- this was a scan only.')
 
 
 if __name__ == '__main__':
