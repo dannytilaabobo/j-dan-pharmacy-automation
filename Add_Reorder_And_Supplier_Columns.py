@@ -13,7 +13,15 @@ DEFAULT_REORDER_POINT = 10
 
 SUPPLIER_LIST = [
     'Dyna Drug', 'Comjem', 'Copharm', 'Latriel', 'RGSOI', 'Ice Climber',
-    'Metrogen', 'Otsuka', 'Pocari', 'MedSupplies/Shopee', 'Shopee', 'Others',
+    'Metrogen', 'Otsuka', 'Pocari', 'MedSupplies/Shopee', 'Shopee',
+    'MULTIPLE/FLEXIBLE', 'Others',
+]
+
+CATEGORY_LIST = [
+    'MAINTENANCE MEDS', 'PAIN & FEVER RELIEF', 'COUGH, COLD & ALLERGY',
+    'GI / DIGESTIVE CARE', 'VITAMINS & SUPPLEMENTS', 'WOUND CARE & TOPICALS',
+    'BABY CARE', 'FEMININE CARE', 'PERSONAL CARE & COSMETICS',
+    'MEDICAL SUPPLIES & DEVICES', 'HOUSEHOLD & GROCERY', 'OTHERS / UNCATEGORIZED',
 ]
 
 # How far past the current row count to extend the Supplier dropdown, so
@@ -63,6 +71,12 @@ def main():
     else:
         print('Supplier column already existed -- left existing values as-is.')
 
+    if 'Category' not in df.columns:
+        df['Category'] = ''
+        added_cols.append('Category')
+    else:
+        print('Category column already existed -- left existing values as-is.')
+
     try:
         with pd.ExcelWriter(MASTER_FILE, engine='openpyxl', mode='w') as writer:
             df.to_excel(writer, sheet_name='INVENTORY MASTER', index=False)
@@ -73,28 +87,34 @@ def main():
     if added_cols:
         print(f"Added column(s): {', '.join(added_cols)}")
 
-    # Second pass with openpyxl to attach the Supplier dropdown (data
-    # validation with showErrorMessage=False so free-text entries are still
-    # allowed -- the list is just a convenience picker, not an enforced rule).
+    # Second pass with openpyxl to attach dropdowns (data validation with
+    # showErrorMessage=False so free-text entries are still allowed -- these
+    # are convenience pickers, not enforced rules). NOTE: this dropdown gets
+    # wiped the next time any other script rewrites Master via
+    # pd.ExcelWriter().to_excel() -- Item_Settings_App.py is the durable way
+    # to edit these fields, this is just a fallback for direct Excel use.
     wb = load_workbook(MASTER_FILE)
     ws = wb['INVENTORY MASTER']
     headers = [str(c.value).strip() if c.value else '' for c in ws[1]]
-    supplier_col_idx = headers.index('Supplier') + 1
-    supplier_col_letter = get_column_letter(supplier_col_idx)
-
-    dv = DataValidation(
-        type='list',
-        formula1='"' + ','.join(SUPPLIER_LIST) + '"',
-        allow_blank=True,
-        showErrorMessage=False,
-    )
-    ws.add_data_validation(dv)
     last_row = max(ws.max_row, 2) + DROPDOWN_ROW_BUFFER
-    dv.add(f'{supplier_col_letter}2:{supplier_col_letter}{last_row}')
+
+    for col_name, options in [('Supplier', SUPPLIER_LIST), ('Category', CATEGORY_LIST)]:
+        col_idx = headers.index(col_name) + 1
+        col_letter = get_column_letter(col_idx)
+        dv = DataValidation(
+            type='list',
+            formula1='"' + ','.join(options) + '"',
+            allow_blank=True,
+            showErrorMessage=False,
+        )
+        ws.add_data_validation(dv)
+        dv.add(f'{col_letter}2:{col_letter}{last_row}')
+        print(f"{col_name} dropdown attached to column {col_letter} (rows 2-{last_row}), free-text entry still allowed.")
+
     wb.save(MASTER_FILE)
 
-    print(f"Supplier dropdown attached to column {supplier_col_letter} (rows 2-{last_row}), free-text entry still allowed.")
     print(f"Supplier options: {', '.join(SUPPLIER_LIST)}")
+    print(f"Category options: {', '.join(CATEGORY_LIST)}")
     print(f"\nFinal columns: {df.columns.tolist()}")
     print(f"Total rows: {len(df)}")
 
