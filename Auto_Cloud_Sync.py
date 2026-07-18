@@ -6,6 +6,11 @@ from oauth2client.service_account import ServiceAccountCredentials
 import datetime
 import traceback
 
+# Anchor to this script's own folder, not the launch-time working directory
+# (which can end up somewhere unexpected -- e.g. C:\Windows\System32 -- since
+# this runs unattended from the Startup folder at every login).
+os.chdir(os.path.dirname(os.path.abspath(__file__)))
+
 # ==========================================
 # SYSTEM CONFIGURATION
 # ==========================================

@@ -1,9 +1,15 @@
+import os
 import glob
 import datetime
 import pandas as pd
 from openpyxl.worksheet.datavalidation import DataValidation
 from openpyxl.styles import Font, PatternFill, Alignment
 from openpyxl.utils import get_column_letter
+
+# Anchor to this script's own folder, not the launch-time working directory
+# (which can end up somewhere unexpected -- e.g. C:\Windows\System32 -- if
+# launched via a shortcut, elevation, or scheduler that doesn't set cwd).
+os.chdir(os.path.dirname(os.path.abspath(__file__)))
 
 MASTER_FILE = 'Inventory_Master.xlsx'
 BITPOS_GLOB = 'bitpos_sales_pricing_*.csv'

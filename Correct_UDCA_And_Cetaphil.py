@@ -3,6 +3,11 @@ import shutil
 import datetime
 import pandas as pd
 
+# Anchor to this script's own folder, not the launch-time working directory
+# (which can end up somewhere unexpected -- e.g. C:\Windows\System32 -- if
+# launched via a shortcut, elevation, or scheduler that doesn't set cwd).
+os.chdir(os.path.dirname(os.path.abspath(__file__)))
+
 MASTER_FILE = 'Inventory_Master.xlsx'
 BACKUP_DIR = 'JDan_Master_Backups'
 PENDING_PATH = os.path.join('JDan_Executive_Reports', 'BITPOS_PENDING_NAME_VERIFICATION.csv')

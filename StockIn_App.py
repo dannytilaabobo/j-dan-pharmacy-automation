@@ -7,6 +7,11 @@ import sys
 
 from name_cleaning import clean_text
 
+# Anchor to this script's own folder, not the launch-time working directory
+# (which can end up somewhere unexpected -- e.g. C:\Windows\System32 -- if
+# launched via a shortcut, elevation, or scheduler that doesn't set cwd).
+os.chdir(os.path.dirname(os.path.abspath(__file__)))
+
 # ==========================================
 #    GUI INITIALIZATION & AUDIT TRAIL
 # ==========================================
