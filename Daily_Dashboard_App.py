@@ -8,6 +8,7 @@ import warnings
 import sys
 import traceback
 import json
+import shutil
 
 # ==========================================
 #    CRASH DETECTOR (Anti-Silent Crash)
@@ -306,7 +307,78 @@ def launch_stratifier_ui(target_date, df_stockin, df_sales, df_pullout, df_final
             })
 
         df_export_sod = pd.DataFrame(final_sod_data)
-        
+
+        # ==========================================
+        # 🔥 RECONCILE MASTER: ang Actual Count na binilang ang dapat
+        # maging bagong Current_Stock -- dati, dito lang na-lo-log ang
+        # variance/justification pero hindi na kino-correct ang Master,
+        # kaya paulit-ulit na nagpapatuloy ang parehong mismatch araw-araw.
+        # ==========================================
+        try:
+            df_master_live = pd.read_excel(master_file, sheet_name='INVENTORY MASTER')
+        except PermissionError:
+            messagebox.showerror("Inventory Locked", f"Hindi ma-reconcile ang {master_file} dahil bukas ito sa Excel. Isara muna at i-FINALIZE ulit.")
+            return
+        df_master_live['Current_Stock'] = pd.to_numeric(df_master_live['Current_Stock'], errors='coerce').fillna(0)
+
+        reconcile_log = []
+        for r in final_sod_data:
+            item_name_clean = str(r['Item_Name']).strip().upper()
+            actual_qty = r['Actual_SOD_Count']
+            mask = df_master_live['Product_Name'].astype(str).str.strip().str.upper() == item_name_clean
+            if not mask.any():
+                continue
+            old_total = df_master_live.loc[mask, 'Current_Stock'].sum()
+            delta = actual_qty - old_total
+            if abs(delta) < 0.01:
+                continue
+
+            # Ipinapamahagi ang adjustment FIFO/FEFO-style (kaparehong convention
+            # ng Daily_Deduct_App/Expiry_Scanner): ang pinaka-malapit-nang-mag-expire
+            # na lot ang unang babawasan kung shortage; ang overage naman ay
+            # ilalagay din doon dahil walang paraan para malaman kung aling
+            # aktwal na lot napunta ang sobrang units.
+            parsed_dates = pd.to_datetime(df_master_live.loc[mask, 'Expiry_Date'], errors='coerce').fillna(pd.Timestamp('2099-12-31'))
+            ordered_idx = parsed_dates.sort_values().index.tolist()
+
+            if delta < 0:
+                qty_to_remove = abs(delta)
+                for idx in ordered_idx:
+                    current = df_master_live.at[idx, 'Current_Stock']
+                    if current >= qty_to_remove:
+                        df_master_live.at[idx, 'Current_Stock'] = current - qty_to_remove
+                        qty_to_remove = 0
+                        break
+                    qty_to_remove -= current
+                    df_master_live.at[idx, 'Current_Stock'] = 0
+            else:
+                df_master_live.at[ordered_idx[0], 'Current_Stock'] += delta
+
+            reconcile_log.append({
+                'Item_Name': r['Item_Name'],
+                'Old_System_Total': old_total,
+                'New_Actual_Total': actual_qty,
+                'Adjustment': delta,
+            })
+
+        if reconcile_log:
+            os.makedirs('JDan_Master_Backups', exist_ok=True)
+            backup_ts = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
+            shutil.copy2(master_file, os.path.join('JDan_Master_Backups', f'Inventory_Master_BEFORE_SOD_RECONCILE_{backup_ts}.xlsx'))
+            try:
+                with pd.ExcelWriter(master_file, engine='openpyxl', mode='w') as writer:
+                    df_master_live.to_excel(writer, sheet_name='INVENTORY MASTER', index=False)
+            except PermissionError:
+                messagebox.showerror("Inventory Locked", f"Hindi na-save ang reconciliation dahil bukas ang {master_file}. Isara at i-FINALIZE ulit.")
+                return
+
+            reconcile_time = datetime.datetime.now().strftime('%Y-%m-%d %I:%M %p')
+            with open("JDan_System_Logs.txt", "a") as logbook:
+                logbook.write(f"[{reconcile_time}] - SOD RECONCILIATION by {staff_name.upper()} ({target_date})\n")
+                for entry in reconcile_log:
+                    logbook.write(f"   -> {entry['Item_Name']} | System: {entry['Old_System_Total']:.0f} -> Actual: {entry['New_Actual_Total']:.0f} | Adjustment: {entry['Adjustment']:+.0f}\n")
+        # ==========================================
+
         # 🔥 NEW: GUMAWA NG TEXT REPORT AT I-QUEUE SA JSON PARA SA CLOUD SYNC
         timestamp = datetime.datetime.now().strftime("%H%M%S")
         txt_report_name = f"SOD_Summary_{target_date}_{timestamp}.txt"

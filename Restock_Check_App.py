@@ -1,0 +1,199 @@
+import tkinter as tk
+from tkinter import ttk, messagebox, simpledialog
+import pandas as pd
+import datetime
+import os
+import sys
+import traceback
+
+# ==========================================
+#    CRASH DETECTOR (Anti-Silent Crash)
+# ==========================================
+def handle_exception(exc_type, exc_value, exc_traceback):
+    err_msg = "".join(traceback.format_exception(exc_type, exc_value, exc_traceback))
+    messagebox.showerror("System Critical Error", f"Nakatagpo ng error ang system. Paki-screenshot ito at ipadala sa Admin:\n\n{err_msg}")
+
+sys.excepthook = handle_exception
+
+# ==========================================
+#    SECURITY LOGIN & LOGBOOK SYSTEM
+# ==========================================
+root = tk.Tk()
+root.withdraw()
+
+staff_name = simpledialog.askstring("J-DAN PHARMACY - SECURITY", "Enter Authorized User Name:", parent=root)
+
+if not staff_name or staff_name.strip() == "":
+    messagebox.showerror("Access Denied", "Authorized user name is required to access the Restock Check module.")
+    sys.exit()
+
+current_time = datetime.datetime.now().strftime('%Y-%m-%d %I:%M %p')
+try:
+    with open("JDan_System_Logs.txt", "a") as logbook:
+        logbook.write(f"[{current_time}] - USER: {staff_name.upper()} - Accessed RESTOCK CHECK module\n")
+except Exception:
+    pass
+
+root.deiconify()
+
+# ==========================================
+#    SYSTEM CONFIGURATION
+# ==========================================
+MASTER_FILE = 'Inventory_Master.xlsx'
+REPORT_DIR = 'JDan_Executive_Reports'
+UNASSIGNED_LABEL = '⚠️ UNASSIGNED / NEEDS SUPPLIER'
+
+last_scan_results = None  # populated by run_scan(), read by export_list()
+
+
+def run_scan():
+    global last_scan_results
+
+    try:
+        df = pd.read_excel(MASTER_FILE, sheet_name='INVENTORY MASTER')
+    except PermissionError:
+        messagebox.showerror("File In Use", f"Isara muna ang {MASTER_FILE} sa Excel bago mag-scan.")
+        return
+    except Exception as e:
+        messagebox.showerror("Error", f"Hindi mabuksan ang {MASTER_FILE}.\n\nDetalye: {e}")
+        return
+
+    if 'Status' in df.columns:
+        df = df[df['Status'].astype(str).str.strip().str.upper() != 'DISCONTINUED']
+
+    df['Current_Stock'] = pd.to_numeric(df['Current_Stock'], errors='coerce').fillna(0)
+    if 'Reorder_Point' not in df.columns:
+        df['Reorder_Point'] = 10
+    df['Reorder_Point'] = pd.to_numeric(df['Reorder_Point'], errors='coerce').fillna(10)
+    if 'Supplier' not in df.columns:
+        df['Supplier'] = ''
+    df['Supplier'] = df['Supplier'].fillna('').astype(str).str.strip()
+
+    # Same product can span multiple lot rows -- combine stock, but a
+    # product should have ONE Reorder_Point/Supplier, not one per lot.
+    inconsistency = df.groupby('Product_Name').agg(
+        RP_Nunique=('Reorder_Point', 'nunique'),
+        Supplier_Nunique=('Supplier', lambda s: s[s != ''].nunique()),
+    ).reset_index()
+    inconsistent_items = inconsistency[
+        (inconsistency['RP_Nunique'] > 1) | (inconsistency['Supplier_Nunique'] > 1)
+    ]['Product_Name'].tolist()
+
+    agg = df.groupby('Product_Name').agg(
+        Item_Code=('Item_Code', 'first'),
+        Current_Stock=('Current_Stock', 'sum'),
+        Reorder_Point=('Reorder_Point', 'first'),
+        Supplier=('Supplier', 'first'),
+    ).reset_index()
+
+    low_stock = agg[agg['Current_Stock'] <= agg['Reorder_Point']].copy()
+    low_stock['Suggested_Order_Qty'] = (low_stock['Reorder_Point'] - low_stock['Current_Stock']).clip(lower=0)
+    low_stock['Supplier_Group'] = low_stock['Supplier'].apply(lambda s: s if s else UNASSIGNED_LABEL)
+    low_stock = low_stock.sort_values(['Supplier_Group', 'Current_Stock'])
+
+    last_scan_results = low_stock
+    populate_tree(low_stock, inconsistent_items)
+
+
+def populate_tree(low_stock, inconsistent_items):
+    tree.delete(*tree.get_children())
+
+    if low_stock.empty:
+        tree.insert('', tk.END, values=('Walang item na paubos ngayon.', '', '', '', ''), tags=('info',))
+    else:
+        for supplier, group in low_stock.groupby('Supplier_Group', sort=False):
+            tree.insert('', tk.END, values=(f'--- {supplier} ({len(group)} item/s) ---', '', '', '', ''), tags=('group_header',))
+            for _, row in group.iterrows():
+                tree.insert('', tk.END, values=(
+                    row['Item_Code'], row['Product_Name'], f"{row['Current_Stock']:.0f}",
+                    f"{row['Reorder_Point']:.0f}", f"{row['Suggested_Order_Qty']:.0f}",
+                ))
+
+    summary = f"{len(low_stock)} item/s na paubos"
+    if not low_stock.empty:
+        unassigned_count = (low_stock['Supplier_Group'] == UNASSIGNED_LABEL).sum()
+        summary += f" | {unassigned_count} walang naka-assign na supplier"
+    if inconsistent_items:
+        summary += f" | ⚠️ {len(inconsistent_items)} item may hindi magkatugmang Reorder_Point/Supplier sa iba't ibang lot"
+    summary += f" | Huling scan: {datetime.datetime.now().strftime('%Y-%m-%d %I:%M %p')}"
+    summary_label.config(text=summary)
+
+    export_btn.config(state='normal' if not low_stock.empty else 'disabled')
+
+    if inconsistent_items:
+        messagebox.showwarning(
+            "Data Inconsistency Detected",
+            "May mga item na magkaiba ang Reorder_Point o Supplier sa iba't ibang lot row nito sa Master "
+            "(dapat iisa lang ito per product):\n\n" + "\n".join(inconsistent_items[:15]) +
+            ("\n... at iba pa" if len(inconsistent_items) > 15 else "")
+        )
+
+
+def export_list():
+    if last_scan_results is None or last_scan_results.empty:
+        messagebox.showinfo("Walang I-eexport", "Wala pang scan result na pwedeng i-export.")
+        return
+    if not messagebox.askyesno("Kumpirmahin", "I-export ang restock list bilang Excel file?"):
+        return
+
+    os.makedirs(REPORT_DIR, exist_ok=True)
+    out_path = os.path.join(REPORT_DIR, f'RESTOCK_LIST_{datetime.datetime.now().strftime("%Y%m%d_%H%M%S")}.xlsx')
+    export_df = last_scan_results[['Supplier_Group', 'Item_Code', 'Product_Name', 'Current_Stock', 'Reorder_Point', 'Suggested_Order_Qty']].copy()
+    export_df.columns = ['Supplier', 'Item_Code', 'Product_Name', 'Current_Stock', 'Reorder_Point', 'Suggested_Order_Qty']
+    export_df.to_excel(out_path, index=False)
+    messagebox.showinfo("Na-export", f"Na-save ang restock list sa:\n{out_path}")
+
+
+# ==========================================
+#    MAIN GUI
+# ==========================================
+root.title("J-DAN PHARMACY - RESTOCK / ORDERING CHECK")
+root.geometry("1000x700")
+root.configure(bg="#f4f4f4")
+
+header_frame = tk.Frame(root, bg="#154360", pady=15)
+header_frame.pack(fill="x")
+tk.Label(header_frame, text="RESTOCK CHECK", fg="white", bg="#154360", font=("Arial", 16, "bold")).pack()
+tk.Label(header_frame, text="Current_Stock vs Reorder_Point, grouped by Supplier", fg="#a9cce3", bg="#154360", font=("Arial", 10)).pack()
+
+btn_frame = tk.Frame(root, bg="#f4f4f4")
+btn_frame.pack(pady=10)
+tk.Button(btn_frame, text="🔍 SCAN NOW", font=("Helvetica", 11, "bold"), bg="#28a745", fg="white", width=20, height=2, command=run_scan).grid(row=0, column=0, padx=10)
+export_btn = tk.Button(btn_frame, text="📤 EXPORT LIST (Optional)", font=("Helvetica", 11, "bold"), bg="#f0ad4e", fg="white", width=25, height=2, state='disabled', command=export_list)
+export_btn.grid(row=0, column=1, padx=10)
+
+summary_label = tk.Label(root, text="Pindutin ang SCAN NOW para makita ang mga paubos na items.", bg="#f4f4f4", font=("Arial", 9, "italic"), fg="#566573")
+summary_label.pack(pady=(0, 5))
+
+tree_frame = tk.Frame(root, bg="#f4f4f4")
+tree_frame.pack(pady=5, padx=20, fill="both", expand=True)
+
+tree_scroll = ttk.Scrollbar(tree_frame, orient="vertical")
+tree_scroll.pack(side="right", fill="y")
+
+columns = ("Code", "Product", "Current", "Reorder", "Suggested")
+tree = ttk.Treeview(tree_frame, columns=columns, show="headings", height=22, yscrollcommand=tree_scroll.set)
+tree_scroll.config(command=tree.yview)
+
+tree.heading("Code", text="Item Code")
+tree.heading("Product", text="Product Name / Supplier Group")
+tree.heading("Current", text="Current Stock")
+tree.heading("Reorder", text="Reorder Point")
+tree.heading("Suggested", text="Suggested Order Qty")
+
+tree.column("Code", width=100, anchor='center')
+tree.column("Product", width=380)
+tree.column("Current", width=110, anchor='center')
+tree.column("Reorder", width=110, anchor='center')
+tree.column("Suggested", width=140, anchor='center')
+
+tree.tag_configure('group_header', background="#d5d8dc", foreground="#154360")
+tree.tag_configure('info', foreground="#566573")
+
+tree.pack(side="left", fill="both", expand=True)
+
+footer_frame = tk.Frame(root, bg="#d5d8dc", pady=5)
+footer_frame.pack(fill="x", side="bottom")
+tk.Label(footer_frame, text=f"Authorized System User: {staff_name.upper()}", font=("Arial", 8, "bold"), bg="#d5d8dc", fg="#566573").pack()
+
+root.mainloop()
