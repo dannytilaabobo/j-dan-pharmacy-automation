@@ -134,7 +134,24 @@ def load_working_data():
     return agg
 
 
-working_df = load_working_data()
+try:
+    working_df = load_working_data()
+except FileNotFoundError:
+    messagebox.showerror(
+        "File Not Found",
+        f"Cannot find '{MASTER_FILE}' in this folder:\n{os.getcwd()}\n\n"
+        f"Please make sure Item_Settings_App.py (or its .bat launcher) is run from inside "
+        f"the Pharmacy_Automation folder, and that {MASTER_FILE} has not been moved, renamed, or deleted."
+    )
+    sys.exit()
+except PermissionError:
+    messagebox.showerror(
+        "File In Use",
+        f"Cannot open '{MASTER_FILE}' -- it may be open in Excel or locked by another program.\n\n"
+        f"Please close it and try again."
+    )
+    sys.exit()
+
 pending_edits = {}  # Item_Code -> {'Reorder_Point': x, 'Supplier': y, 'Category': z, 'Is_Generic': w}
 
 
