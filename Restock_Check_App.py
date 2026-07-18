@@ -61,6 +61,7 @@ def run_scan():
     if 'Status' in df.columns:
         df = df[df['Status'].astype(str).str.strip().str.upper() != 'DISCONTINUED']
 
+    df['Item_Code'] = df['Item_Code'].astype(str).str.strip()
     df['Current_Stock'] = pd.to_numeric(df['Current_Stock'], errors='coerce').fillna(0)
     if 'Reorder_Point' not in df.columns:
         df['Reorder_Point'] = 10
@@ -69,33 +70,43 @@ def run_scan():
         df['Supplier'] = ''
     df['Supplier'] = df['Supplier'].fillna('').astype(str).str.strip()
 
-    # Same product can span multiple lot rows -- combine stock, but a
-    # product should have ONE Reorder_Point/Supplier, not one per lot.
-    inconsistency = df.groupby('Product_Name').agg(
+    # Item_Code is the only stable identifier -- Product_Name can drift
+    # (typos/spelling variants) across a code's lot rows, so grouping by name
+    # would silently split one product into several. Group by Item_Code, and
+    # flag codes where Reorder_Point/Supplier/name actually disagree across lots.
+    df['_name_clean'] = df['Product_Name'].astype(str).str.strip()
+    inconsistency = df.groupby('Item_Code').agg(
         RP_Nunique=('Reorder_Point', 'nunique'),
         Supplier_Nunique=('Supplier', lambda s: s[s != ''].nunique()),
+        Name_Nunique=('_name_clean', 'nunique'),
     ).reset_index()
     inconsistent_items = inconsistency[
-        (inconsistency['RP_Nunique'] > 1) | (inconsistency['Supplier_Nunique'] > 1)
-    ]['Product_Name'].tolist()
+        (inconsistency['RP_Nunique'] > 1) | (inconsistency['Supplier_Nunique'] > 1) | (inconsistency['Name_Nunique'] > 1)
+    ]['Item_Code'].tolist()
 
-    agg = df.groupby('Product_Name').agg(
-        Item_Code=('Item_Code', 'first'),
+    name_freq = df.groupby(['Item_Code', '_name_clean']).size().reset_index(name='freq')
+    name_freq = name_freq.sort_values(['Item_Code', 'freq'], ascending=[True, False])
+    representative_name = name_freq.drop_duplicates('Item_Code', keep='first').set_index('Item_Code')['_name_clean']
+
+    agg = df.groupby('Item_Code').agg(
         Current_Stock=('Current_Stock', 'sum'),
         Reorder_Point=('Reorder_Point', 'first'),
         Supplier=('Supplier', 'first'),
     ).reset_index()
+    agg['Product_Name'] = agg['Item_Code'].map(representative_name)
 
     low_stock = agg[agg['Current_Stock'] <= agg['Reorder_Point']].copy()
     low_stock['Suggested_Order_Qty'] = (low_stock['Reorder_Point'] - low_stock['Current_Stock']).clip(lower=0)
     low_stock['Supplier_Group'] = low_stock['Supplier'].apply(lambda s: s if s else UNASSIGNED_LABEL)
     low_stock = low_stock.sort_values(['Supplier_Group', 'Current_Stock'])
 
+    inconsistent_display = [f"{code}: {representative_name.get(code, '')}" for code in inconsistent_items]
+
     last_scan_results = low_stock
-    populate_tree(low_stock, inconsistent_items)
+    populate_tree(low_stock, inconsistent_display)
 
 
-def populate_tree(low_stock, inconsistent_items):
+def populate_tree(low_stock, inconsistent_display):
     tree.delete(*tree.get_children())
 
     if low_stock.empty:
@@ -113,19 +124,19 @@ def populate_tree(low_stock, inconsistent_items):
     if not low_stock.empty:
         unassigned_count = (low_stock['Supplier_Group'] == UNASSIGNED_LABEL).sum()
         summary += f" | {unassigned_count} walang naka-assign na supplier"
-    if inconsistent_items:
-        summary += f" | ⚠️ {len(inconsistent_items)} item may hindi magkatugmang Reorder_Point/Supplier sa iba't ibang lot"
+    if inconsistent_display:
+        summary += f" | ⚠️ {len(inconsistent_display)} item may hindi magkatugmang Reorder_Point/Supplier/pangalan sa iba't ibang lot"
     summary += f" | Huling scan: {datetime.datetime.now().strftime('%Y-%m-%d %I:%M %p')}"
     summary_label.config(text=summary)
 
     export_btn.config(state='normal' if not low_stock.empty else 'disabled')
 
-    if inconsistent_items:
+    if inconsistent_display:
         messagebox.showwarning(
             "Data Inconsistency Detected",
-            "May mga item na magkaiba ang Reorder_Point o Supplier sa iba't ibang lot row nito sa Master "
-            "(dapat iisa lang ito per product):\n\n" + "\n".join(inconsistent_items[:15]) +
-            ("\n... at iba pa" if len(inconsistent_items) > 15 else "")
+            "May mga item na magkaiba ang Reorder_Point, Supplier, o Product_Name (typo) sa iba't ibang lot row nito sa Master "
+            "(dapat iisa lang ito per product):\n\n" + "\n".join(inconsistent_display[:15]) +
+            ("\n... at iba pa" if len(inconsistent_display) > 15 else "")
         )
 
 

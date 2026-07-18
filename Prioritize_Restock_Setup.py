@@ -10,10 +10,6 @@ TIER1_CUTOFF = 50   # top N by total qty sold -- customize Reorder_Point/Supplie
 TIER2_CUTOFF = 150  # next N -- do next
 
 
-def norm(s):
-    return str(s).strip().upper()
-
-
 def load_sales_velocity():
     frames = []
     for path in glob.glob(f'{EOD_DIR}/PROCESSED_EOD_*.xlsx'):
@@ -24,9 +20,9 @@ def load_sales_velocity():
         raise FileNotFoundError('No PROCESSED_EOD_*.xlsx files found -- no sales history to rank by.')
     all_sales = pd.concat(frames, ignore_index=True)
     all_sales['Qty'] = pd.to_numeric(all_sales['Qty'], errors='coerce').fillna(0).abs()
-    all_sales['_norm_name'] = all_sales['Description'].apply(norm)
+    all_sales['Item_Code'] = all_sales['Item Code'].astype(str).str.strip()
 
-    velocity = all_sales.groupby('_norm_name').agg(
+    velocity = all_sales.groupby('Item_Code').agg(
         Total_Qty_Sold=('Qty', 'sum'),
         Days_Appeared=('source_file', 'nunique'),
     ).reset_index()
@@ -37,22 +33,29 @@ def main():
     velocity = load_sales_velocity()
 
     df_master = pd.read_excel(MASTER_FILE, sheet_name='INVENTORY MASTER')
+    df_master['Item_Code'] = df_master['Item_Code'].astype(str).str.strip()
     if 'Status' in df_master.columns:
         df_master = df_master[df_master['Status'].astype(str).str.strip().str.upper() != 'DISCONTINUED']
     df_master['Current_Stock'] = pd.to_numeric(df_master['Current_Stock'], errors='coerce').fillna(0)
     df_master['Reorder_Point'] = pd.to_numeric(df_master.get('Reorder_Point', 10), errors='coerce').fillna(10)
     df_master['Supplier'] = df_master['Supplier'].fillna('').astype(str).str.strip() if 'Supplier' in df_master.columns else ''
-    df_master['_norm_name'] = df_master['Product_Name'].apply(norm)
 
-    agg_master = df_master.groupby('_norm_name').agg(
-        Item_Code=('Item_Code', 'first'),
-        Product_Name=('Product_Name', 'first'),
+    # Item_Code is the only stable identifier -- Product_Name can drift
+    # (typos/spelling variants) across a code's lot rows, so grouping by name
+    # would silently split one product's stock/sales across "different" rows.
+    df_master['_name_clean'] = df_master['Product_Name'].astype(str).str.strip()
+    name_freq = df_master.groupby(['Item_Code', '_name_clean']).size().reset_index(name='freq')
+    name_freq = name_freq.sort_values(['Item_Code', 'freq'], ascending=[True, False])
+    representative_name = name_freq.drop_duplicates('Item_Code', keep='first').set_index('Item_Code')['_name_clean']
+
+    agg_master = df_master.groupby('Item_Code').agg(
         Current_Stock=('Current_Stock', 'sum'),
         Reorder_Point=('Reorder_Point', 'first'),
         Supplier=('Supplier', 'first'),
     ).reset_index()
+    agg_master['Product_Name'] = agg_master['Item_Code'].map(representative_name)
 
-    merged = agg_master.merge(velocity, on='_norm_name', how='left')
+    merged = agg_master.merge(velocity, on='Item_Code', how='left')
     merged['Total_Qty_Sold'] = merged['Total_Qty_Sold'].fillna(0)
     merged['Days_Appeared'] = merged['Days_Appeared'].fillna(0)
     merged['Supplier_Assigned'] = merged['Supplier'] != ''
