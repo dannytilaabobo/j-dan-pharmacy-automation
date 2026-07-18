@@ -1,3 +1,5 @@
 @echo off
 cd /d "%~dp0"
-python Daily_Deduct_App.py
+set PY="C:\Users\DESKTOP-POS\AppData\Local\Python\bin\python.exe"
+%PY% Daily_Deduct_App.py
+pause

@@ -1,4 +1,5 @@
 @echo off
 cd /d "%~dp0"
-start pythonw Daily_Dashboard_App.py
+set PYW="C:\Users\DESKTOP-POS\AppData\Local\Python\bin\pythonw.exe"
+start "" %PYW% Daily_Dashboard_App.py
 exit
