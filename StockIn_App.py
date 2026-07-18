@@ -91,10 +91,22 @@ def add_to_staging_list():
         messagebox.showerror("Incomplete Data", "All fields are required. Please fill out the form completely.")
         return
     try:
-        float(qty)
+        qty_float = float(qty)
     except:
         messagebox.showerror("Invalid Quantity", "Quantity must be a numerical value.")
         return
+
+    if qty_float > 5000:
+        confirm_large = messagebox.askyesno(
+            "⚠️ HINDI PANGKARANIWANG KALAKIHAN",
+            f"Product: {prod}\n"
+            f"Naitype na Quantity: {qty_float:,.0f}\n\n"
+            f"Paki-verify muna na TAMA ito bago ituloy -- baka natype ang bilang "
+            f"ng BOXES imbes na PIRASO, o may sobrang digit na naisama.\n\n"
+            f"Ituloy pa rin ba ang pag-add nito sa staging batch?"
+        )
+        if not confirm_large:
+            return
 
     # Expiry Validation (Blueprint Compliance: MM/YYYY or NO-EXP)
     if exp != 'NO-EXP':
