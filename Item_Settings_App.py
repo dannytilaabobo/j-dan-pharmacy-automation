@@ -403,6 +403,23 @@ tree.tag_configure('inconsistent', background="#f8d7da")
 tree.bind('<Double-1>', lambda e: open_editor())
 tree.pack(side="left", fill="both", expand=True)
 
+
+def on_close():
+    if pending_edits:
+        if messagebox.askyesno(
+            "Unsaved Changes",
+            f"You have {len(pending_edits)} edited item(s) that have NOT been saved to {MASTER_FILE} yet "
+            f"(they are only staged in this window).\n\n"
+            f"Click SAVE ALL CHANGES first if you want to keep them.\n\n"
+            f"Close anyway and lose these changes?"
+        ):
+            root.destroy()
+    else:
+        root.destroy()
+
+
+root.protocol("WM_DELETE_WINDOW", on_close)
+
 footer_frame = tk.Frame(root, bg="#d5d8dc", pady=5)
 footer_frame.pack(fill="x", side="bottom")
 tk.Label(footer_frame, text=f"Authorized System User: {staff_name.upper()}", font=("Arial", 8, "bold"), bg="#d5d8dc", fg="#566573").pack()

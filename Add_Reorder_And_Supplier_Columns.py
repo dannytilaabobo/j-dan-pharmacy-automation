@@ -109,6 +109,15 @@ def main():
     headers = [str(c.value).strip() if c.value else '' for c in ws[1]]
     last_row = max(ws.max_row, 2) + DROPDOWN_ROW_BUFFER
 
+    # Clear any dropdowns from previous runs of this script first -- re-running
+    # without this accumulates duplicate/overlapping validation definitions
+    # for the same ranges, which Excel considers corrupt and auto-repairs by
+    # stripping the feature (harmless to data, but loses the dropdown).
+    existing_count = len(ws.data_validations.dataValidation)
+    ws.data_validations.dataValidation = []
+    if existing_count:
+        print(f"Cleared {existing_count} pre-existing data validation(s) before re-adding (prevents duplicate/corrupt dropdowns).")
+
     for col_name, options in [('Supplier', SUPPLIER_LIST), ('Category', CATEGORY_LIST), ('Is_Generic', IS_GENERIC_OPTIONS)]:
         col_idx = headers.index(col_name) + 1
         col_letter = get_column_letter(col_idx)
