@@ -255,7 +255,7 @@ def open_editor(item_code=None):
         tk.Radiobutton(is_generic_frame, text=option, variable=is_generic_var, value=option,
                         bg="#eaeded", font=("Arial", 9)).pack(anchor="w")
 
-    def save_and_close():
+    def stage_and_close():
         try:
             new_reorder = float(reorder_entry.get().strip())
         except ValueError:
@@ -283,8 +283,8 @@ def open_editor(item_code=None):
 
     btn_frame = tk.Frame(win, bg="#eaeded")
     btn_frame.pack(pady=15)
-    tk.Button(btn_frame, text="💾 SAVE (to list only, not yet to file)", font=("Arial", 10, "bold"),
-              bg="#28a745", fg="white", command=save_and_close).grid(row=0, column=0, padx=5)
+    tk.Button(btn_frame, text="📋 STAGE THIS EDIT (not saved to file yet)", font=("Arial", 10, "bold"),
+              bg="#17a2b8", fg="white", command=stage_and_close).grid(row=0, column=0, padx=5)
     tk.Button(btn_frame, text="Cancel", font=("Arial", 10), bg="#6c757d", fg="white", command=win.destroy).grid(row=0, column=1, padx=5)
 
 
