@@ -5,6 +5,7 @@ import pandas as pd
 from openpyxl import load_workbook
 from openpyxl.worksheet.datavalidation import DataValidation
 from openpyxl.utils import get_column_letter
+from openpyxl.workbook.defined_name import DefinedName
 
 # Anchor to this script's own folder, not the launch-time working directory
 # (which can end up somewhere unexpected -- e.g. C:\Windows\System32 -- if
@@ -22,12 +23,22 @@ SUPPLIER_LIST = [
     'MULTIPLE/FLEXIBLE', 'Others',
 ]
 
+# 17-category list, replaced 2026-07-19 (0/1,610 items had Category filled
+# at the time, so this is a clean replacement -- no migration of old values).
 CATEGORY_LIST = [
-    'MAINTENANCE MEDS', 'PAIN & FEVER RELIEF', 'COUGH, COLD & ALLERGY',
-    'GI / DIGESTIVE CARE', 'VITAMINS & SUPPLEMENTS', 'WOUND CARE & TOPICALS',
-    'BABY CARE', 'FEMININE CARE', 'PERSONAL CARE & COSMETICS',
-    'MEDICAL SUPPLIES & DEVICES', 'HOUSEHOLD & GROCERY', 'ANTIBIOTICS',
-    'GENERAL MERCHANDISE', 'OTHERS / UNCATEGORIZED',
+    # Medicines
+    'Vitamins, Minerals & Supplements', 'Pain, Fever & Inflammation',
+    'Cough, Cold, Allergy & Asthma', 'Gastrointestinal (GI) Medicines',
+    'Antibiotics & Anti-infectives', 'Cardiovascular Medicines',
+    'Antidiabetic Medicines', 'Hormones & Steroids',
+    'Central Nervous System (CNS) Medicines',
+    'Topical Preparations (Creams, Ointments, Gels & Sprays)',
+    'Eye, Ear & Nasal Preparations', "Family Planning & Women's Health",
+    # Health & Wellness
+    'Medical Supplies & Devices', 'Personal Care, Baby Care & Feminine Care',
+    'Beverages',
+    # Retail
+    'General Merchandise', 'Others / Uncategorized',
 ]
 
 # Medicine-only attribute: GENERIC, BRANDED, or blank/N-A for non-medicine
@@ -37,6 +48,12 @@ IS_GENERIC_OPTIONS = ['', 'GENERIC', 'BRANDED']
 # How far past the current row count to extend the Supplier dropdown, so
 # rows added later by StockIn_App still get the picker without re-running this.
 DROPDOWN_ROW_BUFFER = 3000
+
+# Hidden helper sheet + named ranges for dropdown sources. Excel's inline
+# comma-list validation (formula1='"A,B,C"') is capped at 255 characters --
+# CATEGORY_LIST alone is ~500 with the newer, more descriptive names -- so
+# every list is sourced from here instead, regardless of length.
+LISTS_SHEET_NAME = 'DropdownLists'
 
 
 def backup_master():
@@ -123,19 +140,35 @@ def main():
     if existing_count:
         print(f"Cleared {existing_count} pre-existing data validation(s) before re-adding (prevents duplicate/corrupt dropdowns).")
 
-    for col_name, options in [('Supplier', SUPPLIER_LIST), ('Category', CATEGORY_LIST), ('Is_Generic', IS_GENERIC_OPTIONS)]:
+    # Rebuild the hidden helper sheet fresh each run too -- idempotent, and
+    # avoids stale leftover rows if a list shrinks between runs.
+    if LISTS_SHEET_NAME in wb.sheetnames:
+        del wb[LISTS_SHEET_NAME]
+    lists_ws = wb.create_sheet(LISTS_SHEET_NAME)
+    lists_ws.sheet_state = 'hidden'
+
+    for list_col_idx, (col_name, options) in enumerate([('Supplier', SUPPLIER_LIST), ('Category', CATEGORY_LIST), ('Is_Generic', IS_GENERIC_OPTIONS)], start=1):
         col_idx = headers.index(col_name) + 1
         col_letter = get_column_letter(col_idx)
         list_options = [o for o in options if o]  # allow_blank already covers the blank/N-A case
+
+        list_col_letter = get_column_letter(list_col_idx)
+        for row_idx, value in enumerate(list_options, start=1):
+            lists_ws.cell(row=row_idx, column=list_col_idx, value=value)
+
+        range_name = f'{col_name}DropdownRange'
+        range_ref = f"'{LISTS_SHEET_NAME}'!${list_col_letter}$1:${list_col_letter}${len(list_options)}"
+        wb.defined_names[range_name] = DefinedName(range_name, attr_text=range_ref)
+
         dv = DataValidation(
             type='list',
-            formula1='"' + ','.join(list_options) + '"',
+            formula1=range_name,
             allow_blank=True,
             showErrorMessage=False,
         )
         ws.add_data_validation(dv)
         dv.add(f'{col_letter}2:{col_letter}{last_row}')
-        print(f"{col_name} dropdown attached to column {col_letter} (rows 2-{last_row}), free-text entry still allowed.")
+        print(f"{col_name} dropdown attached to column {col_letter} (rows 2-{last_row}), sourced from hidden '{LISTS_SHEET_NAME}' sheet ({len(list_options)} option(s)), free-text entry still allowed.")
 
     wb.save(MASTER_FILE)
 

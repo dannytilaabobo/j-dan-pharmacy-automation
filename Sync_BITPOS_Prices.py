@@ -30,6 +30,34 @@ PENDING_COLUMNS = ['Item_Code', 'Old_Name', 'New_Name', 'Flagged_Date', 'Status'
 # rather than that many items actually got discontinued at once.
 MASS_DISCONTINUE_WARNING_THRESHOLD = 20
 
+# Same logic for new items: an unusually large batch is more likely an
+# incomplete/mismatched BITPOS export than a real bulk product launch.
+MASS_NEW_ITEM_WARNING_THRESHOLD = 20
+
+# Columns written to Inventory_Master.xlsx for a brand-new item added via
+# BITPOS sync. Only Item_Code/Product_Name/Retail_Price come from BITPOS --
+# Current_Stock starts at 0 (no stock-in has happened yet), and
+# Category/Supplier/Reorder_Point/Is_Generic are left blank for the user to
+# fill in later via Item_Settings_App. Date_Encoded/Encoded_By/Lot_Number/
+# Expiry_Date are owned by StockIn_App and stay blank until an actual
+# stock-in happens.
+NEW_ITEM_DEFAULTS = {
+    'Current_Stock': 0,
+    'Lot_Number': '',
+    'Expiry_Date': '',
+    'Date_Encoded': '',
+    'Encoded_By': '',
+    'Pulled_Out_By': '',
+    'LOCATION': '',
+    'Status': 'ACTIVE',
+    'Discontinued_Date': '',
+    'Discontinued_Reason': '',
+    'Reorder_Point': '',
+    'Supplier': '',
+    'Category': '',
+    'Is_Generic': '',
+}
+
 
 def latest_bitpos_file():
     matches = glob.glob(BITPOS_GLOB)
@@ -75,9 +103,27 @@ def detect_changes(df_master, df_bitpos):
     price_changes = []
     name_changes = []
     discontinued = []
+    new_items = []
 
     active_mask = df_master['Status'].astype(str).str.strip().str.upper() != 'DISCONTINUED' if 'Status' in df_master.columns else pd.Series(True, index=df_master.index)
     master_codes = df_master.loc[active_mask, 'Item_Code'].unique()
+
+    # Checked against ALL Master codes (active AND discontinued) -- a code
+    # that already exists in Master, even discontinued, is a reactivation,
+    # not a "new" item, and is out of scope here.
+    all_master_codes = set(df_master['Item_Code'].unique())
+    seen_new_codes = set()
+    for code in df_bitpos['ITEM CODE']:
+        if code in all_master_codes or code in seen_new_codes:
+            continue
+        seen_new_codes.add(code)
+        new_items.append({
+            'Item_Code': code,
+            'Description': bitpos_name.get(code, ''),
+            'Change_Type': 'NEW ITEM ADDED via BITPOS sync',
+            'Old_Value': '',
+            'New_Value': bitpos_price.get(code),
+        })
 
     for code in master_codes:
         mask = (df_master['Item_Code'] == code) & active_mask
@@ -117,10 +163,10 @@ def detect_changes(df_master, df_bitpos):
                 'New_Value': new_name,
             })
 
-    return price_changes, name_changes, discontinued
+    return price_changes, name_changes, discontinued, new_items
 
 
-def print_preview(price_changes, name_changes, discontinued):
+def print_preview(price_changes, name_changes, discontinued, new_items):
     print('=' * 70)
     print(' PREVIEW -- NO CHANGES HAVE BEEN APPLIED YET')
     print('=' * 70)
@@ -151,7 +197,21 @@ def print_preview(price_changes, name_changes, discontinued):
     else:
         print('  None.')
 
-    print('\nCurrent_Stock is NEVER touched by this script.')
+    print(f'\n--- (4) NEW ITEMS FOUND (in BITPOS, no match in Master): {len(new_items)} item(s) ---')
+    if new_items:
+        with pd.option_context('display.max_colwidth', 45, 'display.width', 200):
+            print(pd.DataFrame(new_items)[['Item_Code', 'Description', 'New_Value']].rename(
+                columns={'Description': 'Product_Name', 'New_Value': 'Retail_Price'}).to_string(index=False))
+        if len(new_items) > MASS_NEW_ITEM_WARNING_THRESHOLD:
+            print(f'\n  ⚠️  WARNING: {len(new_items)} items have no match in Master -- '
+                  f'this is unusual. Please verify the CSV file is complete before confirming, '
+                  f'this may be a mismatched/wrong export rather than a real bulk product launch.')
+        print('  New items will be added with Current_Stock = 0 (no stock-in yet) and '
+              'Category/Supplier/Reorder_Point left blank for you to fill in later via Item Settings.')
+    else:
+        print('  None.')
+
+    print('\nCurrent_Stock is NEVER touched by this script (except new items, which start at 0).')
 
 
 def resolve_name_changes(name_changes, pending_df):
@@ -188,7 +248,7 @@ def resolve_name_changes(name_changes, pending_df):
     return confirmed, newly_deferred, already_pending
 
 
-def apply_changes(df_master, price_changes, name_changes, discontinued):
+def apply_changes(df_master, price_changes, name_changes, discontinued, new_items):
     if 'Status' not in df_master.columns:
         df_master['Status'] = 'ACTIVE'
     if 'Discontinued_Date' not in df_master.columns:
@@ -210,6 +270,16 @@ def apply_changes(df_master, price_changes, name_changes, discontinued):
         df_master.loc[mask, 'Status'] = 'DISCONTINUED'
         df_master.loc[mask, 'Discontinued_Date'] = today
         df_master.loc[mask, 'Discontinued_Reason'] = 'No longer in the BITPOS export -- automatically detected by Sync_BITPOS_Prices.py'
+
+    if new_items:
+        new_rows = []
+        for c in new_items:
+            row = {col: NEW_ITEM_DEFAULTS.get(col, '') for col in df_master.columns}
+            row['Item_Code'] = c['Item_Code']
+            row['Product_Name'] = c['Description']
+            row['Retail_Price'] = c['New_Value']
+            new_rows.append(row)
+        df_master = pd.concat([df_master, pd.DataFrame(new_rows)], ignore_index=True)
 
     return df_master
 
@@ -245,13 +315,14 @@ def append_audit_log(all_changes, source_file):
     log_df.to_csv(AUDIT_LOG_PATH, mode='a', header=header_needed, index=False)
 
 
-def save_preview_report(price_changes, name_changes, discontinued):
+def save_preview_report(price_changes, name_changes, discontinued, new_items):
     os.makedirs(REPORT_DIR, exist_ok=True)
     out_path = os.path.join(REPORT_DIR, f'BITPOS_SYNC_PREVIEW_{datetime.datetime.now().strftime("%Y%m%d_%H%M%S")}.xlsx')
     with pd.ExcelWriter(out_path, engine='openpyxl') as writer:
         pd.DataFrame(price_changes).to_excel(writer, sheet_name='Price_Changes', index=False)
         pd.DataFrame(name_changes).to_excel(writer, sheet_name='Name_Changes', index=False)
         pd.DataFrame(discontinued).to_excel(writer, sheet_name='Newly_Discontinued', index=False)
+        pd.DataFrame(new_items).to_excel(writer, sheet_name='New_Items_Found', index=False)
     return out_path
 
 
@@ -270,14 +341,14 @@ def main():
     df_master['Item_Code'] = df_master['Item_Code'].astype(str).str.strip()
     df_master['Retail_Price'] = pd.to_numeric(df_master['Retail_Price'], errors='coerce')
 
-    price_changes, name_changes, discontinued = detect_changes(df_master, df_bitpos)
+    price_changes, name_changes, discontinued, new_items = detect_changes(df_master, df_bitpos)
 
-    if not price_changes and not name_changes and not discontinued:
+    if not price_changes and not name_changes and not discontinued and not new_items:
         print('\nNo differences -- Master already matches the BITPOS export.')
         return
 
-    print_preview(price_changes, name_changes, discontinued)
-    preview_path = save_preview_report(price_changes, name_changes, discontinued)
+    print_preview(price_changes, name_changes, discontinued, new_items)
+    preview_path = save_preview_report(price_changes, name_changes, discontinued, new_items)
     print(f'\nFull preview also saved to: {preview_path}')
 
     pending_df = load_pending()
@@ -289,8 +360,9 @@ def main():
     print(f'Name changes to defer to Pending Verification: {len(newly_deferred)}')
     print(f'Name changes auto-skipped (already pending): {len(already_pending)}')
     print(f'Newly discontinued: {len(discontinued)}')
+    print(f'New items to add: {len(new_items)}')
 
-    answer = input('\nProceed and apply the CONFIRMED changes to Master (price, approved name changes, discontinued)? (yes/no): ').strip().lower()
+    answer = input('\nProceed and apply the CONFIRMED changes to Master (price, approved name changes, discontinued, new items)? (yes/no): ').strip().lower()
     if answer != 'yes':
         print('\nCANCELLED. No changes were applied to Master.')
         if newly_deferred:
@@ -300,7 +372,7 @@ def main():
     backup_path = backup_master()
     print(f'Backup created: {backup_path}')
 
-    df_master = apply_changes(df_master, price_changes, confirmed_names, discontinued)
+    df_master = apply_changes(df_master, price_changes, confirmed_names, discontinued, new_items)
 
     try:
         with pd.ExcelWriter(MASTER_FILE, engine='openpyxl', mode='w') as writer:
@@ -312,17 +384,21 @@ def main():
     resolved_codes = [c['Item_Code'] for c in confirmed_names]
     update_pending_file(pending_df, newly_deferred, resolved_codes)
 
-    all_changes = price_changes + confirmed_names + discontinued
+    all_changes = price_changes + confirmed_names + discontinued + new_items
     if newly_deferred:
         all_changes += [{**c, 'Change_Type': 'NAME_DEFERRED'} for c in newly_deferred]
     append_audit_log(all_changes, source_file)
 
     print(f'\nAPPLIED: {len(price_changes)} price change(s), {len(confirmed_names)} name change(s), '
-          f'{len(discontinued)} newly discontinued item(s).')
+          f'{len(discontinued)} newly discontinued item(s), {len(new_items)} new item(s) added.')
     if newly_deferred:
         print(f'{len(newly_deferred)} name change(s) saved to the Pending Verification list: {PENDING_PATH}')
     print(f'Audit trail appended to: {AUDIT_LOG_PATH}')
-    print('Current_Stock was not touched.')
+    if new_items:
+        print('NOTE: new items were appended as new rows -- this rewrite may have cleared the Category/Supplier/'
+              'Is_Generic Excel dropdowns (a known side effect of any full-sheet rewrite); re-run '
+              '"Add_Reorder_And_Supplier_Columns.py" if you need them reattached.')
+    print('Current_Stock was not touched for existing items (new items start at 0).')
 
 
 if __name__ == '__main__':

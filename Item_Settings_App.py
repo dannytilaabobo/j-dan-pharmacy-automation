@@ -55,12 +55,22 @@ SUPPLIER_LIST = [
     'MULTIPLE/FLEXIBLE', 'Others',
 ]
 
+# 17-category list, replaced 2026-07-19 (0/1,610 items had Category filled
+# at the time, so this is a clean replacement -- no migration of old values).
 CATEGORY_LIST = [
-    'MAINTENANCE MEDS', 'PAIN & FEVER RELIEF', 'COUGH, COLD & ALLERGY',
-    'GI / DIGESTIVE CARE', 'VITAMINS & SUPPLEMENTS', 'WOUND CARE & TOPICALS',
-    'BABY CARE', 'FEMININE CARE', 'PERSONAL CARE & COSMETICS',
-    'MEDICAL SUPPLIES & DEVICES', 'HOUSEHOLD & GROCERY', 'ANTIBIOTICS',
-    'GENERAL MERCHANDISE', 'OTHERS / UNCATEGORIZED',
+    # Medicines
+    'Vitamins, Minerals & Supplements', 'Pain, Fever & Inflammation',
+    'Cough, Cold, Allergy & Asthma', 'Gastrointestinal (GI) Medicines',
+    'Antibiotics & Anti-infectives', 'Cardiovascular Medicines',
+    'Antidiabetic Medicines', 'Hormones & Steroids',
+    'Central Nervous System (CNS) Medicines',
+    'Topical Preparations (Creams, Ointments, Gels & Sprays)',
+    'Eye, Ear & Nasal Preparations', "Family Planning & Women's Health",
+    # Health & Wellness
+    'Medical Supplies & Devices', 'Personal Care, Baby Care & Feminine Care',
+    'Beverages',
+    # Retail
+    'General Merchandise', 'Others / Uncategorized',
 ]
 
 # Medicine-only attribute: blank/N-A is valid and expected for non-medicine
