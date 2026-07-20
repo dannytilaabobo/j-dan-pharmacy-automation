@@ -84,9 +84,9 @@ Vitamins/Minerals & Supplements, Pain/Fever & Inflammation, Cough/Cold/Allergy &
 - Excel dropdown fragility is an accepted limitation, not fixed at the root — would require switching every Master-writing script from full-sheet rewrites to in-place cell edits (bigger refactor, not scheduled).
 - Supplier Price Variance Engine, WFH Executive Hub, Google Drive Bridge — all still just planned, no work started.
 
-**Open questions (need the user's input, not something to guess):**
-- Is the system physically at Caloocan or Malate (discrepancy seen in exports)?
-- Local-folder (Claude Code) vs web Project collaboration model — affects phone-access setup.
+**Resolved questions:**
+- Physical location: **Malate** (confirmed 2026-07-20; "Caloocan" seen in some exports was incorrect/stale).
+- Collaboration model: **local-folder** — Claude Code on desktop directly accessing this folder (confirmed 2026-07-20).
 
 ---
 

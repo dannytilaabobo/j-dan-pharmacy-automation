@@ -135,6 +135,7 @@ def populate_tree(low_stock, inconsistent_display):
     summary_label.config(text=summary)
 
     export_btn.config(state='normal' if not low_stock.empty else 'disabled')
+    export_txt_btn.config(state='normal' if not low_stock.empty else 'disabled')
 
     if inconsistent_display:
         messagebox.showwarning(
@@ -160,6 +161,29 @@ def export_list():
     messagebox.showinfo("Exported", f"Restock list saved to:\n{out_path}")
 
 
+def export_list_txt():
+    if last_scan_results is None or last_scan_results.empty:
+        messagebox.showinfo("Nothing to Export", "There is no scan result to export yet.")
+        return
+    if not messagebox.askyesno("Confirm", "Export the restock list as a TXT file (for phone editing)?"):
+        return
+
+    os.makedirs(REPORT_DIR, exist_ok=True)
+    out_path = os.path.join(REPORT_DIR, f'RESTOCK_LIST_{datetime.datetime.now().strftime("%Y%m%d_%H%M%S")}.txt')
+
+    lines = []
+    for supplier, group in last_scan_results.groupby('Supplier_Group', sort=False):
+        lines.append(f"=== {supplier} ===")
+        for _, row in group.iterrows():
+            lines.append(f"{row['Product_Name']} - {row['Current_Stock']:.0f} pcs left")
+        lines.append("")
+
+    with open(out_path, 'w', encoding='utf-8') as f:
+        f.write("\n".join(lines).strip() + "\n")
+
+    messagebox.showinfo("Exported", f"Restock list (TXT) saved to:\n{out_path}")
+
+
 # ==========================================
 #    MAIN GUI
 # ==========================================
@@ -177,6 +201,8 @@ btn_frame.pack(pady=10)
 tk.Button(btn_frame, text="🔍 SCAN NOW", font=("Helvetica", 11, "bold"), bg="#28a745", fg="white", width=20, height=2, command=run_scan).grid(row=0, column=0, padx=10)
 export_btn = tk.Button(btn_frame, text="📤 EXPORT LIST (Optional)", font=("Helvetica", 11, "bold"), bg="#f0ad4e", fg="white", width=25, height=2, state='disabled', command=export_list)
 export_btn.grid(row=0, column=1, padx=10)
+export_txt_btn = tk.Button(btn_frame, text="📱 EXPORT TXT (Phone-Friendly)", font=("Helvetica", 11, "bold"), bg="#5dade2", fg="white", width=27, height=2, state='disabled', command=export_list_txt)
+export_txt_btn.grid(row=0, column=2, padx=10)
 
 summary_label = tk.Label(root, text="Click SCAN NOW to see items that are low on stock.", bg="#f4f4f4", font=("Arial", 9, "italic"), fg="#566573")
 summary_label.pack(pady=(0, 5))
