@@ -29,6 +29,7 @@ intersect (shared identity/security items are noted below).
 | `name_cleaning.py` | Shared text-cleaning helpers (`clean_text`, `is_date_corrupted`) | Working, used by StockIn/Deduct/BITPOS sync. |
 | `Auto_Cloud_Sync.py` | Syncs to Google Sheets | Working (uses a service-account key that still needs rotation — see Priorities). |
 | `Diagnose_Inventory_Mismatch.py` | Diagnostic over SOD reports to find repeat-offender products | Working, read-only. |
+| `Trace_Item_Movement.py` | Scoped, read-only 360° movement trace (Master backup snapshots + StockIn + raw BITPOS sales + EOD deductions + SOD actual count) for specific Item_Codes given at the top of the script | Working, added 2026-07-22 for the BONAKID/BONNA investigation below. Edit `TARGET_ITEM_CODES`/`LOOKBACK_START` to reuse for a future item-specific trace; never writes to Master. |
 | `Cost_Tracker_App.py` | Cost/margin tracker, isolated from staff-facing apps | **Design approved, NOT YET BUILT.** This is Step 2 of a two-tool plan — do not start until explicitly told to; Item_Settings_App (Step 1) needed real per-item completion first. |
 | `Admin_Audit_App.py` | "Stealth investigator / zero-movement theft trap" referenced in the user's own notes | **Not found on this PC.** May live on a different machine — unconfirmed. Don't assume it runs from here. |
 | `Desktop\dist\app_ui.exe`, `Desktop\dist\sync_worker.exe` | Compiled binaries referenced elsewhere | **No source available in this environment** — cannot be patched or audited without it. |
@@ -59,6 +60,7 @@ Vitamins/Minerals & Supplements, Pain/Fever & Inflammation, Cough/Cold/Allergy &
 - **2026-07-19 — Payslip Gross Pay not reflecting the new ₱80/hour rate.** Found only by testing the live page, not code review: `templates/payslip.html` computes Gross Pay via client-side JavaScript reading its own hardcoded rate input, completely independent of the server-side value. Fixed by passing the real rate into the template.
 - **2026-07-19/20 — Excel 255-character dropdown limit.** The new 17-item Category list joins to ~498 characters, over Excel's inline-list validation limit — would have caused the same corruption as the July 18 bug, but from length this time. Fixed by sourcing all 3 dropdowns (Supplier/Category/Is_Generic) from a hidden `DropdownLists` worksheet via named ranges instead of inline strings. Verified idempotent (2 runs, no growth in validations/names).
 - **2026-07-20 — Physical-count discrepancy investigated (BENCH BODY SPRAY EIGHT 100ML, Item_Code `61800403`): 11 in Master, 10 counted on shelf.** Full trace of every stock-in, sale, and pull-out record for this item found **zero gap in the system's own logs** — 1 stock-in (+10, 2026-07-17, by KAT) and 5 sales (-5 total, cashiers angelique/DANNY/katlyn) reconcile exactly to Master's current 11. No pull-out record, no manual override, no dropped sales record. **Conclusion: the missing unit happened outside all logged channels** — most likely either a receiving/count error at the 2026-07-17 stock-in itself, or unlogged shrinkage afterward. **Not yet resolved** — recommended next step: physically recount the 10 other items that shared the same delivery lot (`4321224`, same 2026-07-17 batch) to tell whether this is an isolated shrinkage case or a whole-delivery undercount.
+- **2026-07-22 — Physical-count discrepancy investigated (BONAKID 1-3 350G `89490679` and BONNA 0-6MOS 350G `60784421`), same pattern as BENCH BODY SPRAY.** Built `Trace_Item_Movement.py` to trace both. System stock for both items was flat for days (BONAKID=3, BONNA=9, unchanged since 2026-07-18) until one legitimate BITPOS sale of each on 2026-07-21 (receipts `72304`/`72375`, cashier nicole) dropped them to 2 and 8 — raw BITPOS export and EOD deduction report agree exactly, no stock-in in the window. Today's (2026-07-22) SOD physical count then found only 1 and 7 — **1 unit unexplained per item**, beyond what any log accounts for. Note: the user's initial framing ("3→1, kulang ng 2" for BONAKID) conflated the legitimate 07-21 sale with the real gap; the true unexplained shortfall is 1 unit per item, not 2. **Conclusion: same as BENCH BODY SPRAY — loss outside all logged channels.** Master's Current_Stock has already been corrected to the physical count (1/7) by the SOD reconciliation write-back. Not yet resolved at the shrinkage-cause level.
 
 ---
 
@@ -76,6 +78,7 @@ Vitamins/Minerals & Supplements, Pain/Fever & Inflammation, Cough/Cold/Allergy &
 
 **Open investigation:**
 - BENCH BODY SPRAY EIGHT 100ML (`61800403`) 1-unit shortfall — see bug log above. Recount the other 10 items from Lot `4321224` to narrow down cause.
+- BONAKID 1-3 350G (`89490679`) and BONNA 0-6MOS 350G (`60784421`) — 1-unit shortfall each, see 2026-07-22 bug log entry above. Same "unexplained, outside all logs" conclusion as BENCH BODY SPRAY — three small 1-unit shrinkage cases now on record in under a week. Worth a physical spot-check pattern if a fourth turns up (same shelf/staff/time-of-day in common?), but not enough data yet to call it a trend.
 - BITPOS pending rename: Item_Code `51881290` — zero stock, can't verify until next stock-in of that code (tracked in `JDan_Executive_Reports/BITPOS_PENDING_NAME_VERIFICATION.csv`).
 - Two known DISCONTINUED items (SILVER SULFADIAZINE 20G / `37776367`, FUSIDIC ACID TOPICAL CRM 5G / `77925626`) still carry 5 units each — not yet eligible for removal via `Review_Discontinued_Items.py` until sold through or returned.
 
@@ -90,4 +93,4 @@ Vitamins/Minerals & Supplements, Pain/Fever & Inflammation, Cough/Cold/Allergy &
 
 ---
 
-*Last updated: 2026-07-20. Update this file (don't just rely on chat) whenever a system's status changes, a bug gets fixed, or a priority is resolved/added.*
+*Last updated: 2026-07-22. Update this file (don't just rely on chat) whenever a system's status changes, a bug gets fixed, or a priority is resolved/added.*
