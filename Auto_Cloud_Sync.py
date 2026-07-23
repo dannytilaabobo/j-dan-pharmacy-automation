@@ -15,9 +15,12 @@ os.chdir(os.path.dirname(os.path.abspath(__file__)))
 # SYSTEM CONFIGURATION
 # ==========================================
 PENDING_SYNC_DIR = "PENDING_CLOUD_SYNC"
+QUARANTINE_DIR = os.path.join(PENDING_SYNC_DIR, "_QUARANTINE_MALFORMED")
 REPORT_DIR = "JDan_Executive_Reports"
 JSON_KEY_FILE = "credentials.json"
 GOOGLE_SHEET_NAME = "JDAN_LIVE_OPERATIONS_REPORTS"
+MAX_CONNECT_RETRIES = 3
+RETRY_DELAY_SECONDS = 10
 
 def log_error(error_msg, exc_info=None):
     current_time = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
@@ -34,21 +37,34 @@ def log_error(error_msg, exc_info=None):
 # GOOGLE APIS AUTHENTICATION
 # ==========================================
 def setup_google_sheets():
-    try:
-        scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-        if not os.path.exists(JSON_KEY_FILE):
-            log_error(f"CRITICAL: '{JSON_KEY_FILE}' is missing. Cannot connect to Google.")
-            return None
-            
-        creds = ServiceAccountCredentials.from_json_keyfile_name(JSON_KEY_FILE, scope)
-        client = gspread.authorize(creds)
-        
-        # 🔥 FIX: Ibabato natin ang buong Workbook, hindi lang isang specific na tab
-        workbook = client.open(GOOGLE_SHEET_NAME)
-        return workbook
-    except Exception as e:
-        log_error(f"Connection Error: {e}", traceback.format_exc())
+    scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
+    if not os.path.exists(JSON_KEY_FILE):
+        log_error(f"CRITICAL: '{JSON_KEY_FILE}' is missing. Cannot connect to Google.")
         return None
+
+    # Retry a transient failure (e.g. DNS/network not ready yet right after a
+    # reboot/login) a few times before giving up -- a single failed attempt used
+    # to kill the process permanently with no way back until manually relaunched
+    # (root cause of the sync going dark after the 2026-07-04 07:04 AM boot-time
+    # DNS blip). The Scheduled Task's own restart-on-failure setting is the
+    # outer safety net if all retries here are exhausted.
+    last_error = None
+    for attempt in range(1, MAX_CONNECT_RETRIES + 1):
+        try:
+            creds = ServiceAccountCredentials.from_json_keyfile_name(JSON_KEY_FILE, scope)
+            client = gspread.authorize(creds)
+
+            # 🔥 FIX: Ibabato natin ang buong Workbook, hindi lang isang specific na tab
+            workbook = client.open(GOOGLE_SHEET_NAME)
+            return workbook
+        except Exception as e:
+            last_error = e
+            log_error(f"Connection attempt {attempt}/{MAX_CONNECT_RETRIES} failed: {e}", traceback.format_exc())
+            if attempt < MAX_CONNECT_RETRIES:
+                time.sleep(RETRY_DELAY_SECONDS)
+
+    log_error(f"CRITICAL: Could not connect to Google after {MAX_CONNECT_RETRIES} attempts. Last error: {last_error}")
+    return None
 
 # ==========================================
 # BACKGROUND COURIER PROCESS (DYNAMIC ROUTING)
@@ -70,7 +86,10 @@ def run_sync(workbook):
         try:
             with open(file_path, "r") as f:
                 data = json.load(f)
-            
+
+            if not isinstance(data, dict):
+                raise TypeError(f"Expected a JSON object (dict) but got {type(data).__name__}")
+
             # 🔥 NEW: Titingnan ng system kung EOD o SOD ang report
             target_tab = data.get('target_tab', 'EOD_Settlements') # Default sa EOD kung lumang file
             row_data = data.get('row_data', [])
@@ -103,6 +122,21 @@ def run_sync(workbook):
 
         except json.JSONDecodeError:
             print(f" -> [WAITING] {filename} is still being written by the system.")
+        except (TypeError, AttributeError, KeyError) as e:
+            # Payload is structurally malformed (not a network/API hiccup) --
+            # retrying forever would just spam the log every 30s without ever
+            # succeeding (this is exactly what happened with
+            # sync_20260621_094515.json on 2026-06-25: 'list' object has no
+            # attribute 'get', retried 9 times before someone intervened).
+            # Quarantine it for manual review instead of deleting it.
+            os.makedirs(QUARANTINE_DIR, exist_ok=True)
+            quarantine_path = os.path.join(QUARANTINE_DIR, filename)
+            try:
+                os.replace(file_path, quarantine_path)
+                log_error(f"MALFORMED payload {filename} moved to quarantine ({QUARANTINE_DIR}). Error: {e}")
+                print(f" -> [QUARANTINED] {filename}: {e}")
+            except OSError as move_err:
+                log_error(f"Could not quarantine malformed {filename}: {move_err}")
         except Exception as e:
             error_details = f"Could not sync {filename}. Error: {e}"
             print(f" -> [FAILED] {error_details}")
