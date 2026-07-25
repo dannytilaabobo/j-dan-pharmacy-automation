@@ -1,5 +1,7 @@
 # Secrets - never commit
 credentials.json
+.env
+.investigation_lockout.json
 
 # Generated Excel/data files
 *.xlsx
@@ -21,6 +23,7 @@ JDan_Sales_System/
 JDan_StockIn_Reports/
 DAILY SALES POS/
 PENDING_CLOUD_SYNC/
+Investigation_Reports/
 ATTACHED PROOF FOR EXPIRY PULL OUT/
 SALES_REPORT_FROM_POS/
 
