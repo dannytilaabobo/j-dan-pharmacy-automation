@@ -30,8 +30,8 @@ SOD_DIR = 'JDan_Executive_Reports'
 # ==========================================
 #    WHAT TO TRACE
 # ==========================================
-TARGET_ITEM_CODES = ['89490679', '60784421']  # BONAKID 1-3 350G, BONNA 0-6MOS 350G
-LOOKBACK_START = datetime.date(2026, 7, 20)  # Monday
+TARGET_ITEM_CODES = ['34567692']  # LS BL CRM 7G
+LOOKBACK_START = datetime.date(2026, 7, 12)  # last long-stable point before the decline (stock=86, unchanged 2026-07-12 to 2026-07-18)
 
 
 def norm(s):
