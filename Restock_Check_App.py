@@ -3,6 +3,7 @@ from tkinter import ttk, messagebox, simpledialog
 import pandas as pd
 import datetime
 import os
+import glob
 import sys
 import traceback
 
@@ -46,13 +47,44 @@ root.deiconify()
 # ==========================================
 MASTER_FILE = 'Inventory_Master.xlsx'
 REPORT_DIR = 'JDan_Executive_Reports'
+EOD_DIR = 'JDan_Sales_System/EOD_Deduction_Reports'
 UNASSIGNED_LABEL = '⚠️ UNASSIGNED / NEEDS SUPPLIER'
 
+# Sales-velocity thresholds for Priority Mode -- adjust here if Dan wants a
+# higher bar for "fast-moving" (e.g. require 5+ units instead of just 1+).
+PRIORITY_WINDOW_DAYS = 60
+MIN_UNITS_SOLD_FOR_PRIORITY = 1
+
 last_scan_results = None  # populated by run_scan(), read by export_list()
+last_inconsistent_display = []
+
+
+def load_sales_velocity(window_days):
+    """Total units sold per Item_Code in the last `window_days` days, from
+    JDan_Sales_System/EOD_Deduction_Reports/PROCESSED_EOD_*.xlsx (read-only).
+    Item Code is already resolved in these files, so no name-matching needed."""
+    frames = []
+    for path in glob.glob(f'{EOD_DIR}/PROCESSED_EOD_*.xlsx'):
+        try:
+            df = pd.read_excel(path)
+        except Exception:
+            continue
+        frames.append(df)
+    if not frames:
+        return pd.DataFrame(columns=['Item_Code', 'Total_Qty_Sold'])
+
+    all_sales = pd.concat(frames, ignore_index=True)
+    all_sales['Date'] = pd.to_datetime(all_sales['Date'], errors='coerce')
+    cutoff = pd.Timestamp.now().normalize() - pd.Timedelta(days=window_days)
+    all_sales = all_sales[all_sales['Date'] >= cutoff]
+
+    all_sales['Qty'] = pd.to_numeric(all_sales['Qty'], errors='coerce').fillna(0).abs()
+    all_sales['Item_Code'] = all_sales['Item Code'].astype(str).str.strip()
+    return all_sales.groupby('Item_Code').agg(Total_Qty_Sold=('Qty', 'sum')).reset_index()
 
 
 def run_scan():
-    global last_scan_results
+    global last_scan_results, last_inconsistent_display
 
     try:
         df = pd.read_excel(MASTER_FILE, sheet_name='INVENTORY MASTER')
@@ -100,6 +132,11 @@ def run_scan():
     ).reset_index()
     agg['Product_Name'] = agg['Item_Code'].map(representative_name)
 
+    velocity = load_sales_velocity(PRIORITY_WINDOW_DAYS)
+    agg = agg.merge(velocity, on='Item_Code', how='left')
+    agg['Total_Qty_Sold'] = agg['Total_Qty_Sold'].fillna(0)
+    agg['Is_Active'] = agg['Total_Qty_Sold'] >= MIN_UNITS_SOLD_FOR_PRIORITY
+
     low_stock = agg[agg['Current_Stock'] <= agg['Reorder_Point']].copy()
     low_stock['Suggested_Order_Qty'] = (low_stock['Reorder_Point'] - low_stock['Current_Stock']).clip(lower=0)
     low_stock['Supplier_Group'] = low_stock['Supplier'].apply(lambda s: s if s else UNASSIGNED_LABEL)
@@ -108,24 +145,53 @@ def run_scan():
     inconsistent_display = [f"{code}: {representative_name.get(code, '')}" for code in inconsistent_items]
 
     last_scan_results = low_stock
-    populate_tree(low_stock, inconsistent_display)
+    last_inconsistent_display = inconsistent_display
+    render_results()
+
+    if inconsistent_display:
+        messagebox.showwarning(
+            "Data Inconsistency Detected",
+            "Some items have mismatched Reorder_Point, Supplier, or Product_Name (typo) across their lot rows in Master "
+            "(should be one value per product):\n\n" + "\n".join(inconsistent_display[:15]) +
+            ("\n... and more" if len(inconsistent_display) > 15 else "")
+        )
+
+
+def get_display_results():
+    """Applies the current Priority Mode checkbox state to the last scan."""
+    if last_scan_results is None:
+        return None
+    if priority_mode_var.get():
+        return last_scan_results[last_scan_results['Is_Active']]
+    return last_scan_results
+
+
+def render_results():
+    display_df = get_display_results()
+    if display_df is None:
+        return
+    populate_tree(display_df, last_inconsistent_display)
 
 
 def populate_tree(low_stock, inconsistent_display):
     tree.delete(*tree.get_children())
 
     if low_stock.empty:
-        tree.insert('', tk.END, values=('No items are low on stock right now.', '', '', '', ''), tags=('info',))
+        message = 'No fast-moving items are low on stock right now.' if priority_mode_var.get() else 'No items are low on stock right now.'
+        tree.insert('', tk.END, values=(message, '', '', '', ''), tags=('info',))
     else:
         for supplier, group in low_stock.groupby('Supplier_Group', sort=False):
             tree.insert('', tk.END, values=(f'--- {supplier} ({len(group)} item(s)) ---', '', '', '', ''), tags=('group_header',))
             for _, row in group.iterrows():
+                product_display = row['Product_Name'] + (' [ACTIVE]' if row['Is_Active'] else '')
                 tree.insert('', tk.END, values=(
-                    row['Item_Code'], row['Product_Name'], f"{row['Current_Stock']:.0f}",
+                    row['Item_Code'], product_display, f"{row['Current_Stock']:.0f}",
                     f"{row['Reorder_Point']:.0f}", f"{row['Suggested_Order_Qty']:.0f}",
                 ))
 
-    summary = f"{len(low_stock)} item(s) low on stock"
+    summary = f"{len(low_stock)} item(s) shown"
+    if priority_mode_var.get():
+        summary += f" (Priority Mode ON: {PRIORITY_WINDOW_DAYS}-day fast-movers only)"
     if not low_stock.empty:
         unassigned_count = (low_stock['Supplier_Group'] == UNASSIGNED_LABEL).sum()
         summary += f" | {unassigned_count} with no supplier assigned"
@@ -137,17 +203,10 @@ def populate_tree(low_stock, inconsistent_display):
     export_btn.config(state='normal' if not low_stock.empty else 'disabled')
     export_txt_btn.config(state='normal' if not low_stock.empty else 'disabled')
 
-    if inconsistent_display:
-        messagebox.showwarning(
-            "Data Inconsistency Detected",
-            "Some items have mismatched Reorder_Point, Supplier, or Product_Name (typo) across their lot rows in Master "
-            "(should be one value per product):\n\n" + "\n".join(inconsistent_display[:15]) +
-            ("\n... and more" if len(inconsistent_display) > 15 else "")
-        )
-
 
 def export_list():
-    if last_scan_results is None or last_scan_results.empty:
+    export_source = get_display_results()
+    if export_source is None or export_source.empty:
         messagebox.showinfo("Nothing to Export", "There is no scan result to export yet.")
         return
     if not messagebox.askyesno("Confirm", "Export the restock list as an Excel file?"):
@@ -155,14 +214,16 @@ def export_list():
 
     os.makedirs(REPORT_DIR, exist_ok=True)
     out_path = os.path.join(REPORT_DIR, f'RESTOCK_LIST_{datetime.datetime.now().strftime("%Y%m%d_%H%M%S")}.xlsx')
-    export_df = last_scan_results[['Supplier_Group', 'Item_Code', 'Product_Name', 'Current_Stock', 'Reorder_Point', 'Suggested_Order_Qty']].copy()
-    export_df.columns = ['Supplier', 'Item_Code', 'Product_Name', 'Current_Stock', 'Reorder_Point', 'Suggested_Order_Qty']
+    export_df = export_source[['Supplier_Group', 'Item_Code', 'Product_Name', 'Current_Stock', 'Reorder_Point', 'Suggested_Order_Qty', 'Is_Active']].copy()
+    export_df.columns = ['Supplier', 'Item_Code', 'Product_Name', 'Current_Stock', 'Reorder_Point', 'Suggested_Order_Qty', 'Fast_Moving']
+    export_df['Fast_Moving'] = export_df['Fast_Moving'].map({True: 'ACTIVE', False: ''})
     export_df.to_excel(out_path, index=False)
     messagebox.showinfo("Exported", f"Restock list saved to:\n{out_path}")
 
 
 def export_list_txt():
-    if last_scan_results is None or last_scan_results.empty:
+    export_source = get_display_results()
+    if export_source is None or export_source.empty:
         messagebox.showinfo("Nothing to Export", "There is no scan result to export yet.")
         return
     if not messagebox.askyesno("Confirm", "Export the restock list as a TXT file (for phone editing)?"):
@@ -172,10 +233,11 @@ def export_list_txt():
     out_path = os.path.join(REPORT_DIR, f'RESTOCK_LIST_{datetime.datetime.now().strftime("%Y%m%d_%H%M%S")}.txt')
 
     lines = []
-    for supplier, group in last_scan_results.groupby('Supplier_Group', sort=False):
+    for supplier, group in export_source.groupby('Supplier_Group', sort=False):
         lines.append(f"=== {supplier} ===")
         for _, row in group.iterrows():
-            lines.append(f"{row['Product_Name']} - {row['Current_Stock']:.0f} pcs left")
+            tag = ' [ACTIVE]' if row['Is_Active'] else ''
+            lines.append(f"{row['Product_Name']}{tag} - {row['Current_Stock']:.0f} pcs left")
         lines.append("")
 
     with open(out_path, 'w', encoding='utf-8') as f:
@@ -203,6 +265,14 @@ export_btn = tk.Button(btn_frame, text="📤 EXPORT LIST (Optional)", font=("Hel
 export_btn.grid(row=0, column=1, padx=10)
 export_txt_btn = tk.Button(btn_frame, text="📱 EXPORT TXT (Phone-Friendly)", font=("Helvetica", 11, "bold"), bg="#5dade2", fg="white", width=27, height=2, state='disabled', command=export_list_txt)
 export_txt_btn.grid(row=0, column=2, padx=10)
+
+priority_mode_var = tk.BooleanVar(value=False)
+priority_check = tk.Checkbutton(
+    root, text=f"Show Priority Items Only (Fast-Moving, sold within last {PRIORITY_WINDOW_DAYS} days)",
+    variable=priority_mode_var, bg="#f4f4f4", font=("Arial", 10, "bold"), fg="#154360",
+    command=render_results,
+)
+priority_check.pack(pady=(0, 5))
 
 summary_label = tk.Label(root, text="Click SCAN NOW to see items that are low on stock.", bg="#f4f4f4", font=("Arial", 9, "italic"), fg="#566573")
 summary_label.pack(pady=(0, 5))
