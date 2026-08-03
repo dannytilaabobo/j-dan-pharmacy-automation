@@ -57,6 +57,8 @@ MIN_UNITS_SOLD_FOR_PRIORITY = 1
 
 last_scan_results = None  # populated by run_scan(), read by export_list()
 last_inconsistent_display = []
+last_inconsistent_item_codes = []  # raw Item_Codes, read by export_lot_inconsistency_report()
+last_raw_lots_df = None  # per-lot rows (pre-aggregation), read by export_lot_inconsistency_report()
 
 
 def load_sales_velocity(window_days):
@@ -84,7 +86,7 @@ def load_sales_velocity(window_days):
 
 
 def run_scan():
-    global last_scan_results, last_inconsistent_display
+    global last_scan_results, last_inconsistent_display, last_inconsistent_item_codes, last_raw_lots_df
 
     try:
         df = pd.read_excel(MASTER_FILE, sheet_name='INVENTORY MASTER')
@@ -106,6 +108,10 @@ def run_scan():
     if 'Supplier' not in df.columns:
         df['Supplier'] = ''
     df['Supplier'] = df['Supplier'].fillna('').astype(str).str.strip()
+    if 'Lot_Number' not in df.columns:
+        df['Lot_Number'] = ''
+    if 'Expiry_Date' not in df.columns:
+        df['Expiry_Date'] = ''
 
     # Item_Code is the only stable identifier -- Product_Name can drift
     # (typos/spelling variants) across a code's lot rows, so grouping by name
@@ -146,6 +152,9 @@ def run_scan():
 
     last_scan_results = low_stock
     last_inconsistent_display = inconsistent_display
+    last_inconsistent_item_codes = inconsistent_items
+    last_raw_lots_df = df[['Item_Code', 'Product_Name', 'Reorder_Point', 'Supplier', 'Current_Stock', 'Lot_Number', 'Expiry_Date']].copy()
+    export_inconsistency_btn.config(state='normal' if inconsistent_items else 'disabled')
     render_results()
 
     if inconsistent_display:
@@ -246,6 +255,32 @@ def export_list_txt():
     messagebox.showinfo("Exported", f"Restock list (TXT) saved to:\n{out_path}")
 
 
+def export_lot_inconsistency_report():
+    if not last_inconsistent_item_codes or last_raw_lots_df is None:
+        messagebox.showinfo("Nothing to Export", "No lot inconsistencies were found in the last scan.")
+        return
+    if not messagebox.askyesno("Confirm", "Export the full lot inconsistency report as a CSV file?"):
+        return
+
+    report_df = last_raw_lots_df[last_raw_lots_df['Item_Code'].isin(last_inconsistent_item_codes)].copy()
+    report_df['Lot_Row_Number'] = report_df.groupby('Item_Code').cumcount() + 1
+    report_df['Expiry_Date'] = pd.to_datetime(report_df['Expiry_Date'], errors='coerce').dt.strftime('%Y-%m-%d').fillna('')
+
+    report_df = report_df[[
+        'Item_Code', 'Lot_Row_Number', 'Product_Name', 'Reorder_Point', 'Supplier',
+        'Current_Stock', 'Lot_Number', 'Expiry_Date',
+    ]].sort_values(['Item_Code', 'Lot_Row_Number'])
+
+    os.makedirs(REPORT_DIR, exist_ok=True)
+    out_path = os.path.join(REPORT_DIR, f'LOT_INCONSISTENCY_REPORT_{datetime.datetime.now().strftime("%Y%m%d_%H%M%S")}.csv')
+    report_df.to_csv(out_path, index=False)
+    messagebox.showinfo(
+        "Exported",
+        f"Lot inconsistency report saved to:\n{out_path}\n\n"
+        f"{report_df['Item_Code'].nunique()} product(s), {len(report_df)} lot row(s) total."
+    )
+
+
 # ==========================================
 #    MAIN GUI
 # ==========================================
@@ -265,6 +300,8 @@ export_btn = tk.Button(btn_frame, text="📤 EXPORT LIST (Optional)", font=("Hel
 export_btn.grid(row=0, column=1, padx=10)
 export_txt_btn = tk.Button(btn_frame, text="📱 EXPORT TXT (Phone-Friendly)", font=("Helvetica", 11, "bold"), bg="#5dade2", fg="white", width=27, height=2, state='disabled', command=export_list_txt)
 export_txt_btn.grid(row=0, column=2, padx=10)
+export_inconsistency_btn = tk.Button(btn_frame, text="⚠️ EXPORT LOT INCONSISTENCY REPORT", font=("Helvetica", 11, "bold"), bg="#c0392b", fg="white", width=32, height=2, state='disabled', command=export_lot_inconsistency_report)
+export_inconsistency_btn.grid(row=0, column=3, padx=10)
 
 priority_mode_var = tk.BooleanVar(value=False)
 priority_check = tk.Checkbutton(

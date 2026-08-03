@@ -209,7 +209,7 @@ def process_batch_to_master():
         df = pd.read_excel(master_file, sheet_name='INVENTORY MASTER', dtype=str)
         
         # Ensure requisite columns exist
-        for col in ['Lot_Number', 'Date_Encoded', 'Current_Stock', 'Encoded_By']:
+        for col in ['Lot_Number', 'Date_Encoded', 'Current_Stock', 'Encoded_By', 'Reorder_Point', 'Supplier']:
             if col not in df.columns:
                 df[col] = ""
 
@@ -231,6 +231,23 @@ def process_batch_to_master():
                 df.at[idx, 'Date_Encoded'] = today_str
                 df.at[idx, 'Encoded_By'] = staff_name.upper()
             else:
+                # New lot for this Item_Code -- if the item already has other lot
+                # row(s) in Master, inherit Reorder_Point/Supplier from the most
+                # recent one instead of leaving them blank (a blank cell here used
+                # to get silently treated as a "10 / no supplier" default by every
+                # downstream reader, which is what caused the 74-item lot
+                # inconsistency cleanup). Truly new items (no existing rows at
+                # all) are left blank, same as before -- default is correct there.
+                existing_rows = df[df['Item_Code'] == code]
+                inherited_rp, inherited_supplier = '', ''
+                for _, r in existing_rows.iloc[::-1].iterrows():
+                    rp_val = r.get('Reorder_Point', '')
+                    if pd.notna(rp_val) and str(rp_val).strip() != '':
+                        inherited_rp = rp_val
+                        supplier_val = r.get('Supplier', '')
+                        inherited_supplier = supplier_val if pd.notna(supplier_val) else ''
+                        break
+
                 new_row = {
                     'Item_Code': code,
                     'Product_Name': prod,
@@ -238,7 +255,9 @@ def process_batch_to_master():
                     'Expiry_Date': exp,
                     'Current_Stock': qty,
                     'Date_Encoded': today_str,
-                    'Encoded_By': staff_name.upper()
+                    'Encoded_By': staff_name.upper(),
+                    'Reorder_Point': inherited_rp,
+                    'Supplier': inherited_supplier,
                 }
                 df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
 
