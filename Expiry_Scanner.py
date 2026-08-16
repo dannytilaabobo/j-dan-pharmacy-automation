@@ -4,6 +4,7 @@ import tkinter as tk
 from tkinter import ttk, messagebox, simpledialog
 import pandas as pd
 import datetime
+import json
 import os
 import shutil
 import openpyxl
@@ -353,7 +354,27 @@ def process_pullout():
             ])
 
         wb.save(master_file)
-        
+
+        # Queue each pulled item for the Cloud Sync Courier -> Stock_Adjustments tab
+        for item in items_to_process:
+            try:
+                os.makedirs('PENDING_CLOUD_SYNC', exist_ok=True)
+                ts = datetime.datetime.now()
+                payload = {
+                    'target_tab': 'Stock_Adjustments',
+                    'row_data': [
+                        ts.strftime('%Y-%m-%d %H:%M:%S'), staff_name.upper(), str(item['code']), item['name'],
+                        f"{item['actual_qty']:.0f}", 'OUT',
+                        f"Expiry Pull-Out (Pulled Exp: {item['pulled_expiry']})",
+                        'PULL_OUT', 'Expiry_Scanner',
+                    ],
+                }
+                fname = f"sync_PULLOUT_{item['code']}_{ts.strftime('%Y%m%d_%H%M%S_%f')}.json"
+                with open(os.path.join('PENDING_CLOUD_SYNC', fname), 'w', encoding='utf-8') as f:
+                    json.dump(payload, f)
+            except OSError as e:
+                print(f"[Cloud Sync Queue] Could not queue {item['code']}: {e}")
+
         timestamp_str = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
         
         timestamp = datetime.datetime.now().strftime('%Y-%m-%d %I:%M %p')

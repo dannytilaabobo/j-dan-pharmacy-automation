@@ -2,6 +2,7 @@ import tkinter as tk
 from tkinter import ttk, messagebox, simpledialog
 import pandas as pd
 import datetime
+import json
 import os
 import sys
 
@@ -273,6 +274,25 @@ def process_batch_to_master():
         
         df_rep = pd.DataFrame(report_data, columns=['Item_Code', 'Product_Name', 'Lot_Number', 'Expiry_Date', 'Qty_Delivered', 'Date_Encoded', 'Encoded_By'])
         df_rep.to_excel(report_file, index=False)
+
+        # Queue each line for the Cloud Sync Courier -> Stock_Adjustments tab
+        for code, prod, lot, exp, qty, _date, _staff in report_data:
+            try:
+                os.makedirs('PENDING_CLOUD_SYNC', exist_ok=True)
+                ts = datetime.datetime.now()
+                payload = {
+                    'target_tab': 'Stock_Adjustments',
+                    'row_data': [
+                        ts.strftime('%Y-%m-%d %H:%M:%S'), staff_name.upper(), str(code), prod,
+                        f"{float(qty):.0f}", 'IN', f"Incoming Delivery (Lot: {lot}, Exp: {exp})",
+                        'STOCK_IN', 'StockIn_App',
+                    ],
+                }
+                fname = f"sync_STOCKIN_{code}_{ts.strftime('%Y%m%d_%H%M%S_%f')}.json"
+                with open(os.path.join('PENDING_CLOUD_SYNC', fname), 'w', encoding='utf-8') as f:
+                    json.dump(payload, f)
+            except OSError as e:
+                print(f"[Cloud Sync Queue] Could not queue {code}: {e}")
 
         for item in all_staged:
             tree_stage.delete(item)
