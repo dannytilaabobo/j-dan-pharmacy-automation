@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Modify Logs - {{ emp_name }}</title>
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #f4f7f6; padding: 15px; margin: 0; }
+        .header { background: #2c3e50; color: white; padding: 20px; border-radius: 10px; text-align: center; margin-bottom: 20px; box-shadow: 0 4px 6px rgba(0,0,0,0.1);}
+        .header h2 { margin: 0 0 5px 0; font-size: 22px;}
+        .header p { margin: 0; font-size: 14px; opacity: 0.8;}
+        .log-card { background: white; padding: 20px; border-radius: 10px; box-shadow: 0 4px 8px rgba(0,0,0,0.05); margin-bottom: 20px; border-top: 4px solid #3498db;}
+        .adj-card { border-top: 4px solid #e67e22; background-color: #fffdf5; }
+        .form-group { margin-bottom: 15px; }
+        label { font-weight: bold; display: block; margin-bottom: 5px; font-size: 14px; color: #333;}
+        input[type="time"], input[type="number"], input[type="text"] { width: 100%; padding: 12px; border: 1px solid #ddd; border-radius: 8px; box-sizing: border-box; font-size: 16px; background: #fafafa;}
+        .flex-buttons { display: flex; gap: 10px; margin-top: 15px; }
+        .btn-save { background: #2ecc71; color: white; border: none; padding: 15px; flex: 2; font-size: 16px; font-weight: bold; border-radius: 8px; cursor: pointer; box-shadow: 0 2px 4px rgba(46, 204, 113, 0.3);}
+        .btn-save:hover { background: #27ae60; }
+        .btn-delete { background: #e74c3c; color: white; border: none; padding: 15px; flex: 1; font-size: 16px; font-weight: bold; border-radius: 8px; cursor: pointer; box-shadow: 0 2px 4px rgba(231, 76, 60, 0.3);}
+        .btn-delete:hover { background: #c0392b; }
+        .btn-delete-full { width: 100%; }
+        .btn-waive { background: #f39c12; color: white; border: none; border-radius: 8px; cursor: pointer; padding: 0 15px; font-weight: bold; box-shadow: 0 2px 4px rgba(243, 156, 18, 0.3); }
+        .btn-waive:hover { background: #e67e22; }
+        .btn-back { background: #95a5a6; color: white; border: none; padding: 12px; width: 100%; font-size: 15px; border-radius: 8px; cursor: pointer; text-decoration: none; display: block; text-align: center; box-sizing: border-box; margin-bottom: 20px;}
+        .info-box { background: #e8f4f8; padding: 15px; border-radius: 8px; border-left: 4px solid #3498db; margin-bottom: 20px; font-size: 14px; color: #2c3e50; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h2>
+            Edit Logs: {{ emp_name }}
+            {% if late_only == '1' %}
+                <br><span style="color: #f1c40f; font-size: 16px;">(Late Entries Only)</span>
+            {% endif %}
+        </h2>
+        <p>{{ start_date }} to {{ end_date }}</p>
+    </div>
+    <div class="info-box">
+        <strong>Operational Guidelines:</strong><br>
+        • Time In and Time Out are directly editable. Press <b>Save Edits</b> on that record and the System Computed Hours update immediately.<br>
+        • The original punch is kept as a read-only reference below each field and is never changed by an edit.<br>
+        • Every Time In / Time Out edit is written to PAYROLL_EDIT_AUDIT_LOG.csv.<br>
+        • For payroll, the Time Out minute is capped to a 15-minute grace window per half hour (:00-:15 and :30-:45). The stored Time Out is not changed.<br>
+        • Enter <b>-1</b> in the Adjust Hrs field to deduct 1 hour.<br>
+        • Use the <b>Waive</b> button to reset an applied penalty to 0.<br>
+        • Use the <b>Del</b> button to permanently delete an incorrect entry.
+    </div>
+    {% for log in logs %}
+        {% if log[2] == 'ADJUSTMENT' %}
+        <div class="log-card adj-card">
+            <h3 style="margin-top: 0; color: #d35400;">Managerial System Override</h3>
+            <div class="form-group">
+                <label>Date Applied:</label>
+                <input type="text" value="{{ log[1] }}" readonly style="background: transparent; border: none; padding: 0; font-weight: bold; color: #555;">
+            </div>
+            <div class="form-group">
+                <label>Reason / Remarks:</label>
+                <input type="text" value="{{ log[7] }}" readonly style="background: transparent; border: none; padding: 0; font-style: italic;">
+            </div>
+             <div class="form-group">
+                <label>Hours Adjusted (+ / -):</label>
+                <input type="text" value="{{ log[6] }} hrs" readonly style="background: transparent; border: none; padding: 0; font-weight: bold; color: #d35400; font-size: 18px;">
+            </div>
+            <form action="/delete_log/{{ log[0] }}" method="POST" onsubmit="return confirm('Are you sure you wish to permanently delete this manual adjustment override?');" style="margin: 0;">
+                <input type="hidden" name="emp_id" value="{{ emp_id }}">
+                <input type="hidden" name="start_date" value="{{ start_date }}">
+                <input type="hidden" name="end_date" value="{{ end_date }}">
+                {% if late_only == '1' %} <input type="hidden" name="late_only" value="1"> {% endif %}
+                 <button type="submit" class="btn-delete btn-delete-full">Delete Override</button>
+            </form>
+        </div>
+        {% else %}
+        <div class="log-card">
+            <form action="/update_log" method="POST" id="update_form_{{ log[0] }}">
+                <input type="hidden" name="log_id" value="{{ log[0] }}">
+                 <input type="hidden" name="emp_id" value="{{ emp_id }}">
+                <input type="hidden" name="start_date" value="{{ start_date }}">
+                <input type="hidden" name="end_date" value="{{ end_date }}">
+                {% if late_only == '1' %} <input type="hidden" name="late_only" value="1"> {% endif %}
+                
+                {% if log[7] and "SYSTEM FLAG" in log[7] %}
+                <div style="background-color: #ffebee; border-left: 4px solid #c62828; padding: 10px; margin-bottom: 15px; border-radius: 4px;">
+                    <strong style="color: #c62828; font-size: 14px;">{{ log[7] }}</strong>
+                </div>
+                {% endif %}
+
+                <div class="form-group">
+                    <label>System Date:</label>
+                    <input type="text" value="{{ log[1] }}" readonly style="background: #e9ecef; font-weight: bold; color: #555;">
+                </div>
+                <div style="display: flex; gap: 10px;">
+                    <div class="form-group" style="flex: 1;">
+                        <label>Time In:</label>
+                        <input type="time" name="time_in" value="{{ log[2] }}" step="1" required>
+                        <div style="font-size: 12px; color: #888; margin-top: 4px;">Raw punch: {{ log[8] or '-' }}</div>
+                    </div>
+                    <div class="form-group" style="flex: 1;">
+                        <label>Time Out:</label>
+                        <input type="time" name="time_out" value="{{ log[3] }}" step="1" required>
+                        <div style="font-size: 12px; color: #888; margin-top: 4px;">Raw punch: {{ log[9] or '-' }}</div>
+                    </div>
+                 </div>
+                <div style="display: flex; gap: 10px;">
+                    <div class="form-group" style="flex: 1;">
+                        <label>Adjust Hrs (+ / -):</label>
+                        <input type="number" name="adjustment_hours" value="{{ log[6] or 0 }}" step="0.01" style="background-color: #fff3cd;">
+                     </div>
+                    <div class="form-group" style="flex: 1;">
+                        <label>Late Penalty (₱):</label>
+                        <div style="display: flex; gap: 5px;">
+                            <input type="number" id="pen_{{ log[0] }}" name="penalty" value="{{ log[5] or 0 }}" step="0.01">
+                            <button type="button" class="btn-waive" onclick="document.getElementById('pen_{{ log[0] }}').value=0" title="Zero out the system penalty">Waive</button>
+                         </div>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label>System Computed Hours (grace cap and breaks applied):</label>
+                    <input type="text" value="{{ log[4] }} hrs" readonly style="background: #eef9f0; color: #28a745; font-weight: bold; text-align: center;">
+                </div>
+            </form>
+            <div class="flex-buttons">
+                <button type="submit" form="update_form_{{ log[0] }}" class="btn-save">Save Edits</button>
+                <form action="/delete_log/{{ log[0] }}" method="POST" onsubmit="return confirm('Are you sure you wish to permanently delete this system log? This action cannot be reversed.');" style="margin: 0; flex: 1; display: flex;">
+                    <input type="hidden" name="emp_id" value="{{ emp_id }}">
+                    <input type="hidden" name="start_date" value="{{ start_date }}">
+                    <input type="hidden" name="end_date" value="{{ end_date }}">
+                    {% if late_only == '1' %} <input type="hidden" name="late_only" value="1"> {% endif %}
+                    <button type="submit" class="btn-delete" style="width: 100%;">Del</button>
+                </form>
+            </div>
+        </div>
+        {% endif %}
+    {% else %}
+    <div class="log-card" style="text-align: center; border-top: 4px solid #e74c3c;">
+        <p style="color: #666; font-size: 16px;">
+            {% if late_only == '1' %}
+                Excellent. No late infractions recorded for this staff member during the selected period.
+            {% else %}
+                No attendance logs found for this reporting period.
+            {% endif %}
+        </p>
+    </div>
+    {% endfor %}
+</body>
+</html>

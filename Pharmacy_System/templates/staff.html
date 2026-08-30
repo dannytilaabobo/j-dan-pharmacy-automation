@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>J-DAN Pharmacy Staff</title>
+    <style>
+        body { font-family: 'Segoe UI', Arial; background-color: #e8f5e9; padding: 20px; }
+        .container { background: white; padding: 30px; border-radius: 15px; box-shadow: 0px 4px 10px rgba(0,0,0,0.1); max-width: 700px; margin: auto; }
+        h2 { color: #2e7d32; margin-top: 0; }
+        input, select { padding: 10px; margin: 5px; border: 1px solid #ddd; border-radius: 5px; outline-color: #2e7d32; }
+        button { padding: 10px 20px; background: #2e7d32; color: white; border: none; border-radius: 5px; cursor: pointer; font-weight: bold; transition: 0.3s; }
+        button:hover { background: #1b5e20; }
+        table { width: 100%; margin-top: 20px; border-collapse: collapse; }
+        td, th { padding: 10px; border-bottom: 1px solid #eee; text-align: left;}
+        .btn-back { display: inline-block; margin-bottom: 20px; color: #2e7d32; text-decoration: none; font-size: 15px; font-weight: bold; }
+        .btn-back:hover { text-decoration: underline; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <a href="/admin" class="btn-back">Back to Admin Dashboard</a>
+        <h2>Staff Registration</h2>
+        <form method="POST">
+            <input type="text" name="emp_name" placeholder="Staff Name" required>
+            <select name="role" required>
+                <option value="Pharmacy Assistant">Pharmacy Assistant</option>
+                <option value="Pharmacist">Pharmacist</option>
+                <option value="Cashier">Cashier</option>
+                <option value="Store Manager">Store Manager</option>
+            </select>
+            <input type="text" name="temp_pin" placeholder="6-Digit PIN" pattern="\d{6}" maxlength="6" required style="width: 120px;" autocomplete="off">
+            <button type="submit">Register</button>
+        </form>
+        <hr>
+        <h3>Current Staff</h3>
+        <table>
+            <tr>
+                <th>Name</th>
+                <th>Role</th>
+                <th>Action</th>
+            </tr>
+            {% for staff in staff_list %}
+            <tr>
+                <td><strong>{{ staff[1] }}</strong></td>
+                <td>{{ staff[2] }}</td>
+                <td>
+                    <form method="POST" style="margin:0;">
+                        <input type="hidden" name="reset_id" value="{{ staff[0] }}">
+                        <input type="text" name="new_temp_pin" placeholder="New 6-Digit PIN" pattern="\d{6}" maxlength="6" required style="width: 140px;" autocomplete="off">
+                        <button type="submit">Reset PIN</button>
+                    </form>
+                </td>
+            </tr>
+            {% endfor %}
+        </table>
+    </div>
+</body>
+</html>

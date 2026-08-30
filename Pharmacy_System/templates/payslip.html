@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Payslip - {{ name }}</title>
+    <style>
+        body { font-family: 'Arial', sans-serif; background-color: #f4f7f6; display: flex; justify-content: center; padding: 20px; margin: 0; }
+        .payslip-container { background: #fff; width: 100%; max-width: 800px; padding: 40px; border-radius: 4px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); }
+        .company-title { text-align: center; color: #2e7d32; font-size: 26px; font-weight: bold; margin: 0; }
+        .branch-title { text-align: center; color: #4caf50; font-size: 14px; font-weight: bold; margin: 5px 0 15px 0; }
+        .payslip-banner { background-color: #2e7d32; color: white; text-align: center; font-weight: bold; padding: 6px; font-size: 16px; margin-bottom: 25px; }
+        .emp-info { width: 60%; border-collapse: collapse; margin-bottom: 30px; font-size: 14px; }
+        .emp-info td { padding: 4px 8px; }
+        .emp-info .label-col { color: #2e7d32; font-weight: bold; width: 35%; }
+        .emp-info .value-col { background-color: #fef0cd; font-weight: bold; }
+        .calc-wrapper { display: flex; justify-content: space-between; margin-bottom: 20px; }
+        .calc-table { border-collapse: collapse; font-size: 14px; width: 48%; }
+        .calc-table td { padding: 6px; font-weight: bold; }
+        .calc-table .label { width: 40%; }
+        input[type="number"], input[type="text"] { width: 100px; padding: 4px; border: 1px solid #7cb342; border-radius: 2px; font-size: 14px; font-weight: bold; text-align: right; background-color: #f1f8e9;}
+        input[type="text"] { text-align: left; background-color: transparent; border: none; border-bottom: 1px solid #ccc; width: 100%; font-weight: normal; font-size: 12px;}
+        input:focus { outline: none; border-color: #2e7d32; background-color: #fff; }
+        .box-value { border: 1px solid #7cb342; padding: 4px; text-align: right; width: 100px; display: inline-block; background-color: #f1f8e9;}
+        .adjustment-text { color: #d35400; font-size: 12px; font-style: italic; font-weight: normal; margin-left: 5px;}
+        .summary-table { border-collapse: collapse; font-size: 14px; width: 40%; margin-top: 10px; }
+        .summary-table td { padding: 6px; font-weight: bold; }
+        .summary-table .label { color: #2e7d32; width: 50%; }
+        .signature-area { margin-top: 40px; font-size: 14px; }
+        .signature-line { display: inline-block; width: 250px; border-bottom: 1px solid #000; margin-left: 10px; }
+        .disclaimer { text-align: center; margin-top: 50px; font-size: 12px; font-family: 'Times New Roman', Times, serif; line-height: 1.4;}
+        .btn-print { display: block; width: 100%; background: #2e7d32; color: white; padding: 15px; text-align: center; font-size: 16px; font-weight: bold; border: none; border-radius: 5px; cursor: pointer; margin-top: 30px; }
+        .btn-print:hover { background: #1b5e20; }
+        @media print {
+            body { background: white; padding: 0; }
+            .payslip-container { box-shadow: none; max-width: 100%; padding: 0; }
+            .btn-print { display: none; }
+            -webkit-print-color-adjust: exact; 
+            print-color-adjust: exact;
+            input[type="number"] { border: 1px solid #7cb342; background: transparent; }
+            input[type="text"] { border: none; }
+        }
+    </style>
+</head>
+<body>
+    <div class="payslip-container">
+        <h1 class="company-title">J-Dan Pharmacy</h1>
+        <h3 class="branch-title">Happy Med Pharmacy - Malate Manila Branch</h3>
+        <div class="payslip-banner">EMPLOYEE PAYSLIP</div>
+        <table class="emp-info">
+            <tr>
+                <td class="label-col">Employee Name</td>
+                <td class="value-col">{{ name }}</td>
+            </tr>
+            <tr>
+                <td class="label-col">Employee ID</td>
+                <td class="value-col">{{ emp_id }}</td>
+            </tr>
+            <tr>
+                <td class="label-col">Payroll Period</td>
+                <td class="value-col">{{ period }}</td>
+            </tr>
+            <tr>
+                <td class="label-col">Pay Date</td>
+                <td class="value-col">{{ pay_date }}</td>
+            </tr>
+        </table>
+        <div class="calc-wrapper">
+            <table class="calc-table">
+                <tr>
+                    <td class="label">Rate/Hour</td>
+                    <td><input type="number" id="rate" value="{{ '%.2f' % rate }}" step="0.50"></td>
+                </tr>
+                <tr>
+                    <td class="label">System Hours</td>
+                    <td><input type="number" id="hours" value="{{ hours }}" step="0.01"></td>
+                </tr>
+                <tr>
+                    <td class="label">Mgr. Adjustment (+ / -)</td>
+                    <td><input type="number" id="adjustment" value="{{ adjustment }}" step="0.01"></td>
+                </tr>
+                <tr>
+                    <td class="label">Basic Pay <span class="adjustment-text">(Hrs + Adj) × Rate</span></td>
+                    <td>₱<span class="box-value" id="basic_pay">0.00</span></td>
+                </tr>
+                <tr>
+                    <td class="label">Allowance</td>
+                    <td><input type="number" id="allowance" value="0.00" step="1"></td>
+                </tr>
+                <tr>
+                    <td class="label">Overtime</td>
+                    <td><input type="number" id="overtime" value="0.00" step="1"></td>
+                </tr>
+                <tr>
+                    <td class="label">Bonus</td>
+                    <td><input type="number" id="bonus" value="0.00" step="1"></td>
+                </tr>
+            </table>
+            <table class="calc-table" style="width: 50%;">
+                <tr>
+                    <td class="label" style="width: 30%;">SSS</td>
+                    <td><input type="number" id="sss" value="0.00" step="1"></td>
+                </tr>
+                <tr>
+                    <td class="label">PhilHealth</td>
+                    <td><input type="number" id="philhealth" value="0.00" step="1"></td>
+                </tr>
+                <tr>
+                    <td class="label">Pag-IBIG</td>
+                    <td><input type="number" id="pagibig" value="0.00" step="1"></td>
+                </tr>
+                <tr>
+                    <td class="label">Late Penalties</td>
+                    <td><input type="number" id="penalty" value="{{ penalty }}" step="1"></td>
+                </tr>
+                <tr>
+                    <td class="label">Other Deductions</td>
+                    <td style="display: flex; gap: 5px;">
+                        <input type="number" id="other_ded" value="0.00" step="1">
+                        <input type="text" placeholder="Remarks (e.g. Laptop Pmt)">
+                    </td>
+                </tr>
+            </table>
+        </div>
+        <table class="summary-table">
+            <tr>
+                <td class="label">Gross Pay</td>
+                <td>₱<span class="box-value" id="gross_pay">0.00</span></td>
+            </tr>
+            <tr>
+                <td class="label">Total Deductions</td>
+                <td>₱<span class="box-value" id="total_ded">0.00</span></td>
+            </tr>
+            <tr>
+                <td class="label">Net Pay</td>
+                <td>₱<span class="box-value" id="net_pay">0.00</span></td>
+            </tr>
+        </table>
+        <div class="signature-area">
+            Signature over printed name: <span class="signature-line"></span>
+        </div>
+        <div class="disclaimer">
+            <strong>CONFIDENTIALITY NOTICE:</strong><br>
+            This payroll and payslip is confidential and for internal use only of <strong>J-Dan Pharmacy (Happy<br>
+            Med Pharmacy – Malate Manila Branch)</strong>. It is not valid for any external transaction.<br>
+            Unauthorized use or disclosure is strictly prohibited.
+        </div>
+        <button class="btn-print" onclick="window.print()">Save as PDF / Print Payslip</button>
+    </div>
+    <script>
+        function computePayslip() {
+            let hours = parseFloat(document.getElementById('hours').value) || 0;
+            let adjustment = parseFloat(document.getElementById('adjustment').value) || 0; 
+            let rate = parseFloat(document.getElementById('rate').value) || 0;
+            let allowance = parseFloat(document.getElementById('allowance').value) || 0;
+            let overtime = parseFloat(document.getElementById('overtime').value) || 0;
+            let bonus = parseFloat(document.getElementById('bonus').value) || 0;
+            
+            let sss = parseFloat(document.getElementById('sss').value) || 0;
+            let philhealth = parseFloat(document.getElementById('philhealth').value) || 0;
+            let pagibig = parseFloat(document.getElementById('pagibig').value) || 0;
+            let penalty = parseFloat(document.getElementById('penalty').value) || 0;
+            let otherDed = parseFloat(document.getElementById('other_ded').value) || 0;
+
+            let totalPayableHours = hours + adjustment;
+            let basicPay = totalPayableHours * rate;
+            let grossPay = basicPay + allowance + overtime + bonus;
+            let totalDeductions = sss + philhealth + pagibig + penalty + otherDed;
+            let netPay = grossPay - totalDeductions;
+
+            document.getElementById('basic_pay').innerText = basicPay.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+            document.getElementById('gross_pay').innerText = grossPay.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+            document.getElementById('total_ded').innerText = totalDeductions.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+            document.getElementById('net_pay').innerText = netPay.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+        }
+
+        document.querySelectorAll('input[type="number"]').forEach(input => {
+            input.addEventListener('input', computePayslip);
+        });
+        window.onload = computePayslip;
+    </script>
+</body>
+</html>

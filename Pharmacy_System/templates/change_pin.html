@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Set Permanent PIN - J-Dan Pharmacy</title>
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #e8f5e9; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; }
+        .pin-box { background: white; padding: 40px; border-radius: 15px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); text-align: center; width: 100%; max-width: 380px; border-top: 10px solid #2e7d32; }
+        h2 { color: #2e7d32; margin-top: 0; margin-bottom: 5px;}
+        p { color: #555; font-size: 15px; margin-bottom: 15px; font-weight: bold;}
+        input[type="password"] { width: 100%; padding: 15px; font-size: 28px; text-align: center; letter-spacing: 15px; border: 2px solid #a5d6a7; border-radius: 10px; box-sizing: border-box; margin-bottom: 20px; outline-color: #2e7d32;}
+        button { width: 100%; background: #2e7d32; color: white; border: none; padding: 15px; font-size: 16px; font-weight: bold; border-radius: 10px; cursor: pointer; transition: 0.3s;}
+        button:hover { background: #1b5e20; }
+        .warning-text { color: #d35400; background-color: #fffaf0; border: 1px solid #ffeeba; padding: 15px; border-radius: 8px; font-size: 13px; margin-bottom: 20px; line-height: 1.5; text-align: left;}
+    </style>
+</head>
+<body>
+    <div class="pin-box">
+        <h2>Security Update</h2>
+        <p>Establish a New 6-Digit PIN</p>
+        <div class="warning-text">
+            <b>Security Protocol Initiated</b><br>
+            Your account requires a credential update. This occurs if you are a newly registered employee or your previous PIN has reached its 60-day expiration cycle.<br><br>
+            Please establish a new <b>6-digit numeric PIN</b>. This will serve as your universal credential for daily clock-ins and dashboard authentication.
+        </div>
+        <form method="POST">
+            <input type="password" name="new_pin" pattern="\d{6}" maxlength="6" placeholder="******" required autofocus autocomplete="off">
+            <button type="submit">Save My New PIN</button>
+        </form>
+    </div>
+</body>
+</html>

@@ -1,0 +1,28 @@
+# Secrets - never commit
+credentials.json
+.env
+
+# Data (staff PINs, payroll, attendance records)
+*.db
+
+# Payroll edit audit trail (local-only record, contains staff/payroll data)
+PAYROLL_EDIT_AUDIT_LOG.csv
+
+# Third-party binary tool (not our code)
+ngrok.exe
+
+# Internal shortcuts pointing to a specific ngrok URL (not source code)
+*.url
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# Ad-hoc backup copies made before risky edits (not source code -- git
+# history is the real backup mechanism for tracked files)
+*_BEFORE_*.py
+*.bak
+
+# The repo root ignores *.png; the app logo is real source, keep it.
+!static/logo.png

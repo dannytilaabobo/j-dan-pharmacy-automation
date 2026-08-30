@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>J-DAN Pharmacy</title>
+    <style>
+        body { font-family: 'Segoe UI', Arial; text-align: center; background-color: #e8f5e9; margin-top: 80px; }
+        .container { background: white; padding: 40px; border-radius: 20px; box-shadow: 0px 8px 20px rgba(0,0,0,0.1); display: inline-block; width: 380px; border-top: 10px solid #2e7d32; }
+        h2 { color: #2e7d32; margin-bottom: 5px; }
+        p { color: #555; margin-top: 0; margin-bottom: 25px; font-weight: bold; }
+        input { font-size: 28px; padding: 15px; text-align: center; width: 80%; border: 2px solid #a5d6a7; border-radius: 10px; margin-bottom: 20px; outline-color: #2e7d32; letter-spacing: 10px; }
+        .btn-row { display: flex; gap: 12px; width: 90%; margin: 0 auto; }
+        button.punch-btn { flex: 1; font-size: 17px; padding: 18px 10px; color: white; border: none; border-radius: 10px; cursor: pointer; font-weight: bold; transition: 0.3s; }
+        .btn-time-in { background: #2e7d32; }
+        .btn-time-in:hover { background: #1b5e20; }
+        .btn-time-out { background: #c62828; }
+        .btn-time-out:hover { background: #8e0000; }
+        .alert { color: #c62828; font-weight: bold; background-color: #ffebee; padding: 10px; border-radius: 8px; margin-bottom: 20px; border: 1px solid #c62828; }
+        /* --- CONFIRMATION BANNER --- */
+        .banner { border-radius: 14px; padding: 22px 18px; margin-bottom: 22px; text-align: center; }
+        .banner-success { background-color: #e8f5e9; border: 3px solid #2e7d32; }
+        .banner-info { background-color: #fff8e1; border: 3px solid #f39c12; }
+        .banner-error { background-color: #ffebee; border: 3px solid #c62828; }
+        .banner-action { font-size: 30px; font-weight: 800; letter-spacing: 1px; }
+        .banner-success .banner-action { color: #1b5e20; }
+        .banner-info .banner-action { color: #8a5a00; }
+        .banner-error .banner-action { color: #b71c1c; }
+        .banner-name { font-size: 22px; font-weight: 700; color: #333; margin-top: 6px; }
+        .banner-when { font-size: 17px; color: #444; margin-top: 8px; font-weight: 600; }
+        .banner-hours { font-size: 15px; color: #444; margin-top: 8px; font-weight: 600; }
+        .banner-note { font-size: 14px; color: #555; margin-top: 12px; font-style: italic; line-height: 1.4; }
+        .modal { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); display: flex; align-items: center; justify-content: center; z-index: 1000; }
+        .modal-content { background: white; padding: 30px; border-radius: 15px; max-width: 350px; text-align: center; border-top: 8px solid #f39c12; box-shadow: 0 10px 30px rgba(0,0,0,0.3);}
+        .modal-content h3 { color: #d35400; margin-top: 0; font-size: 22px;}
+        .modal-content p { color: #444; line-height: 1.5; font-weight: normal; margin-bottom: 20px;}
+        .btn-change { display: block; background: #28a745; color: white; padding: 14px; text-decoration: none; border-radius: 8px; font-weight: bold; margin-bottom: 10px; font-size: 16px;}
+        .btn-later { display: block; width: 100%; background: #e0e0e0; color: #333; border: none; padding: 12px; border-radius: 8px; font-weight: bold; cursor: pointer; font-size: 15px;}
+        .btn-later:hover { background: #d0d0d0; }
+    </style>
+</head>
+<body>
+    {% if warning %}
+    <div id="expiryModal" class="modal">
+        <div class="modal-content">
+            <h3>Action Required: Password Expiry</h3>
+            <p>Please be advised that your 6-digit system access PIN will expire in <b>{{ days_left }} days</b>.</p>
+            <p>To ensure uninterrupted access to the Timekeeping System, please update your credentials immediately.</p>
+            <div style="margin-top: 25px;">
+                <a href="/change_pin/{{ emp_id }}" class="btn-change">Update PIN Now</a>
+                <button onclick="document.getElementById('expiryModal').style.display='none'" class="btn-later">Acknowledge & Continue</button>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
+    <div class="container">
+        <h2>J-DAN Pharmacy</h2>
+        <p>Timekeeping System</p>
+
+        {% if message %}
+            <div class="alert">{{ message }}</div>
+        {% endif %}
+
+        {% if banner %}
+            <div class="banner banner-{{ banner.status }}">
+                <div class="banner-action">{{ banner.action }}</div>
+                <div class="banner-name">{{ banner.name }}</div>
+                {% if banner.when %}
+                    <div class="banner-when">{{ banner.when }}</div>
+                {% endif %}
+                {% if banner.hours is defined and banner.hours is not none %}
+                    <div class="banner-hours">Total Hours: {{ banner.hours }}</div>
+                {% endif %}
+                {% if banner.note %}
+                    <div class="banner-note">{{ banner.note }}</div>
+                {% endif %}
+            </div>
+        {% endif %}
+
+        <form method="POST">
+            <input type="password" name="pin" pattern="\d{6}" maxlength="6" placeholder="******" required autofocus autocomplete="off">
+            <div class="btn-row">
+                <button type="submit" name="action" value="time_in" class="punch-btn btn-time-in">TIME IN</button>
+                <button type="submit" name="action" value="time_out" class="punch-btn btn-time-out">TIME OUT</button>
+            </div>
+        </form>
+    </div>
+</body>
+</html>

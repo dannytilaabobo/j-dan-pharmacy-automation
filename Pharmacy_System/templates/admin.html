@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>J-DAN Pharmacy - Admin Dashboard</title>
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 20px; background-color: #f4f4f9; color: #333; }
+        .container { max-width: 1100px; margin: auto; background: #fff; padding: 25px; border-radius: 8px; box-shadow: 0 4px 8px rgba(0,0,0,0.1); }
+        .header-actions { display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #ddd; padding-bottom: 10px; margin-bottom: 20px; }
+        .header-actions h1 { margin: 0; color: #2c3e50; }
+        .header-actions a { text-decoration: none; background: #6c757d; color: white; padding: 8px 15px; border-radius: 4px; margin-left: 5px; }
+        .header-actions a:hover { opacity: 0.9; }
+        .form-group { margin-bottom: 15px; }
+        input[type="date"], select, button, input[type="number"], input[type="text"] { padding: 8px; margin-right: 10px; border: 1px solid #ccc; border-radius: 4px; }
+        button { background-color: #28a745; color: white; border: none; cursor: pointer; font-weight: bold; }
+        button:hover { background-color: #218838; }
+        table { width: 100%; border-collapse: collapse; margin-top: 15px; margin-bottom: 20px; }
+        th, td { padding: 12px; border: 1px solid #e9ecef; text-align: center; }
+        th { background-color: #007bff; color: white; font-weight: normal; }
+        tr:nth-child(even) { background-color: #f8f9fa; }
+        .adjustment-section { background-color: #e2e8f0; padding: 20px; border-radius: 6px; margin-top: 30px; border-left: 5px solid #007bff; }
+        .missing-log-section { background-color: #fff3cd; padding: 20px; border-radius: 6px; margin-top: 15px; border-left: 5px solid #ffc107; }
+        .adjustment-section h3, .missing-log-section h3 { margin-top: 0; color: #2c3e50; }
+        .text-muted { font-size: 0.9em; color: #666; margin-bottom: 15px; }
+        .filter-container { display: flex; align-items: center; gap: 15px; flex-wrap: wrap; background: #f8f9fa; padding: 15px; border-radius: 6px; border: 1px solid #dee2e6; margin-bottom: 20px;}
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header-actions">
+            <h1>Admin Dashboard - Payroll</h1>
+            <div>
+                <a href="/staff" style="background-color: #28a745;">Manage Staff</a>
+                <a href="/logout" style="background-color: #dc3545;">Logout</a>
+            </div>
+        </div>
+        <form method="POST" action="/admin" class="filter-container">
+            <div>
+                <label><strong>Start Date:</strong></label>
+                <input type="date" name="start_date" value="{{ start_date }}" required>
+            </div>
+            <div>
+                <label><strong>End Date:</strong></label>
+                <input type="date" name="end_date" value="{{ end_date }}" required>
+            </div>
+            <div style="background: #fff3cd; padding: 8px 12px; border-radius: 4px; border: 1px solid #ffeeba;">
+                <label style="cursor: pointer; margin: 0; display: flex; align-items: center; gap: 8px;">
+                    <input type="checkbox" name="late_only" value="1" {% if late_only %}checked{% endif %} style="width: 18px; height: 18px; margin: 0;">
+                    <strong style="color: #d35400;">Show Late Only</strong>
+                </label>
+            </div>
+            <button type="submit" style="padding: 10px 20px;">View Records</button>
+        </form>
+        {% if data %}
+        <form method="POST" action="/export_csv" style="display: inline-block;">
+            <input type="hidden" name="start_date" value="{{ start_date }}">
+            <input type="hidden" name="end_date" value="{{ end_date }}">
+            {% if late_only %}
+                <input type="hidden" name="late_only" value="1">
+            {% endif %}
+            <button type="submit" style="background-color: #17a2b8;">Export to CSV</button>
+        </form>
+        <table>
+            <thead>
+                <tr>
+                    <th>Emp ID</th>
+                    <th>Employee Name</th>
+                    <th>System Hours</th>
+                    <th>Adjustment</th>
+                    <th>Total Payable Hours</th>
+                    <th>Late Penalty</th>
+                    <th>Gross Pay (₱70/hr)</th>
+                    <th>Action</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for row in data %}
+                <tr>
+                    <td>{{ row.id }}</td>
+                    <td style="text-align: left; font-weight: bold;">{{ row.name }}</td>
+                    <td>{{ row.hours }}</td>
+                    <td style="color: {% if row.adjustment > 0 %}green{% elif row.adjustment < 0 %}red{% else %}black{% endif %};">
+                        {{ row.adjustment }}
+                    </td>
+                    <td style="background-color: #eef9f0; font-weight: bold;">{{ row.total_hours }}</td>
+                    <td style="color: red; font-weight: bold;">{{ row.penalty }}</td>
+                    <td style="color: green; font-weight: bold;">₱ {{ row.gross }}</td>
+                    <td style="white-space: nowrap;">
+                        <a href="/view_logs/{{ row.id }}?start_date={{ start_date }}&end_date={{ end_date }}{% if late_only %}&late_only=1{% endif %}" target="_blank" style="display: inline-block; background-color: #17a2b8; color: white; padding: 6px 10px; font-size: 0.9em; text-decoration: none; border-radius: 4px; border: 1px solid #117a8b; margin-right: 5px;">Edit DTR</a>
+                        <form method="POST" action="/payslip/{{ row.id }}" target="_blank" style="display: inline-block; margin: 0;">
+                            <input type="hidden" name="start_date" value="{{ start_date }}">
+                            <input type="hidden" name="end_date" value="{{ end_date }}">
+                            <button type="submit" style="background-color: #ffc107; color: #333; padding: 5px 10px; font-size: 0.9em; border: 1px solid #d39e00;">Payslip</button>
+                        </form>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+            <p style="text-align: center; color: #777; margin-top: 20px;"><em>No records found for the selected filter.</em></p>
+        {% endif %}
+        <div class="missing-log-section">
+            <h3>Insert Missing DTR Record (System Override)</h3>
+            <p class="text-muted">Utilize this function to manually register a shift for employees experiencing technical difficulties or failing to log their attendance. The system will automatically calculate gross hours and applicable penalties.</p>
+            <form action="/insert_missing_log" method="POST">
+                <div class="form-group">
+                    <label><strong>Employee:</strong></label>
+                    <select name="emp_id" required>
+                        <option value="" disabled selected>-- Select Employee --</option>
+                        {% for emp in employees %}
+                            <option value="{{ emp[0] }}">{{ emp[1] }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="form-group" style="display: inline-block;">
+                    <label><strong>Date:</strong></label><br>
+                    <input type="date" name="log_date" required>
+                </div>
+                <div class="form-group" style="display: inline-block;">
+                    <label><strong>Time In:</strong></label><br>
+                    <input type="time" name="time_in" required>
+                </div>
+                <div class="form-group" style="display: inline-block;">
+                    <label><strong>Time Out:</strong></label><br>
+                    <input type="time" name="time_out" required>
+                </div>
+                <div style="margin-top: 10px;">
+                    <button type="submit" style="background-color: #ffc107; color: #333; border: 1px solid #d39e00;">Save Missing Record</button>
+                </div>
+            </form>
+        </div>
+        <div class="adjustment-section">
+            <h3>Add / Deduct Hours (Manual Override)</h3>
+            <p class="text-muted">Utilize this function to process Approved Overtime or operational deductions. <br>
+            <i>(e.g., Input <b>2</b> to credit 2 hours of Overtime, or <b>-1.5</b> to deduct hours)</i></p>
+            <form action="/add_adjustment" method="POST">
+                <div class="form-group">
+                    <label><strong>Employee:</strong></label>
+                    <select name="emp_id" required>
+                        <option value="" disabled selected>-- Select Employee --</option>
+                        {% for emp in employees %}
+                            <option value="{{ emp[0] }}">{{ emp[1] }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="form-group" style="display: inline-block;">
+                    <label><strong>Date Applied:</strong></label><br>
+                    <input type="date" name="adj_date" required>
+                </div>
+                <div class="form-group" style="display: inline-block;">
+                    <label><strong>Hours (+ / -):</strong></label><br>
+                    <input type="number" step="0.01" name="adj_hours" placeholder="e.g. 2 or -1.5" required>
+                </div>
+                <div class="form-group" style="display: inline-block;">
+                    <label><strong>Reason/Remarks:</strong></label><br>
+                    <input type="text" name="reason" placeholder="e.g. Approved OT, System Error" style="width: 250px;" required>
+                </div>
+                <div style="margin-top: 10px;">
+                    <button type="submit" style="background-color: #007bff;">Submit Adjustment</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</body>
+</html>
