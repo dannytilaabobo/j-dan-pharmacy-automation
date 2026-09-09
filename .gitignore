@@ -35,3 +35,9 @@ JDan_System_Logs.txt
 __pycache__/
 *.pyc
 *.pyo
+
+# Script backups / editor scratch copies
+*.bak
+
+# Google Drive Desktop sync staging folder (not project content)
+.tmp.driveupload/
