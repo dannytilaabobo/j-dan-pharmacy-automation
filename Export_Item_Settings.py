@@ -15,6 +15,7 @@ os.chdir(os.path.dirname(os.path.abspath(__file__)))
 MASTER_FILE = 'Inventory_Master.xlsx'
 EOD_DIR = 'JDan_Sales_System/EOD_Deduction_Reports'
 LISTS_SHEET_NAME = 'DropdownLists'
+MISSING_OUTPUT_FILE = 'Items_Missing_Category_Supplier.xlsx'
 
 # Same tiering convention as Prioritize_Restock_Setup.py's RESTOCK_PRIORITY_GUIDE.
 TIER1_CUTOFF = 50   # top N by total qty sold
@@ -75,7 +76,99 @@ def load_sales_velocity():
     return all_sales.groupby('Item_Code').agg(Total_Qty_Sold=('Qty', 'sum')).reset_index()
 
 
+def attach_dropdowns(path, sheet_name, last_row, dropdown_cols):
+    # Shared by both export modes. Category's 17-item list joined is ~500
+    # chars, over Excel's 255-char inline-list limit, so -- same fix as the
+    # "Removed Feature: Data validation" corruption found 2026-07-19/20 in
+    # Add_Reorder_And_Supplier_Columns.py -- all dropdowns source from a
+    # hidden helper sheet via DefinedName ranges instead of inline formula1
+    # strings, for consistency and to avoid that failure mode entirely.
+    wb = load_workbook(path)
+    ws = wb[sheet_name]
+
+    if LISTS_SHEET_NAME in wb.sheetnames:
+        del wb[LISTS_SHEET_NAME]
+    lists_ws = wb.create_sheet(LISTS_SHEET_NAME)
+    lists_ws.sheet_state = 'hidden'
+
+    for list_col_idx, (col_name, col_letter, options) in enumerate(dropdown_cols, start=1):
+        list_col_letter = get_column_letter(list_col_idx)
+        for row_idx, value in enumerate(options, start=1):
+            lists_ws.cell(row=row_idx, column=list_col_idx, value=value)
+
+        range_name = f'{col_name}DropdownRange'
+        range_ref = f"'{LISTS_SHEET_NAME}'!${list_col_letter}$1:${list_col_letter}${len(options)}"
+        wb.defined_names[range_name] = DefinedName(range_name, attr_text=range_ref)
+
+        dv = DataValidation(
+            type='list',
+            formula1=range_name,
+            allow_blank=True,
+            showErrorMessage=True,
+            errorTitle='Invalid entry',
+            error=f'Please pick a value from the {col_name} dropdown list (or leave blank).',
+        )
+        ws.add_data_validation(dv)
+        dv.add(f'{col_letter}2:{col_letter}{last_row}')
+
+    wb.save(path)
+
+
+def export_missing_category_supplier(agg, discontinued_excluded):
+    missing = agg[(agg['Category'] == '') | (agg['Supplier'] == '')].copy()
+    missing_category_only = int(((missing['Category'] == '') & (missing['Supplier'] != '')).sum())
+    missing_supplier_only = int(((missing['Supplier'] == '') & (missing['Category'] != '')).sum())
+    missing_both = int(((missing['Category'] == '') & (missing['Supplier'] == '')).sum())
+
+    out_df = missing[['Item_Code', 'Item_Name', 'Category', 'Supplier', 'Reorder_Point', 'Current_Stock']].copy()
+    out_df = out_df.rename(columns={'Item_Name': 'Product_Name'})
+    out_df = out_df.sort_values('Item_Code').reset_index(drop=True)
+
+    out_path = MISSING_OUTPUT_FILE
+    sheet_name = 'Missing Category-Supplier'
+    with pd.ExcelWriter(out_path, engine='openpyxl') as writer:
+        out_df.to_excel(writer, sheet_name=sheet_name, index=False)
+        ws = writer.sheets[sheet_name]
+        widths = {'A': 14, 'B': 45, 'C': 40, 'D': 22, 'E': 16, 'F': 16}
+        for col, w in widths.items():
+            ws.column_dimensions[col].width = w
+
+    last_row = len(out_df) + 1
+    if len(out_df) > 0:
+        dropdown_cols = [('Category', 'C', CATEGORY_LIST), ('Supplier', 'D', SUPPLIER_LIST)]
+        attach_dropdowns(out_path, sheet_name, last_row, dropdown_cols)
+
+    print('=' * 70)
+    print(' ITEMS MISSING CATEGORY / SUPPLIER -- EXPORTED')
+    print('=' * 70)
+    if discontinued_excluded:
+        print(f'(Excluded {discontinued_excluded} DISCONTINUED item(s) from the scan.)')
+    print(f'Total items flagged (missing Category and/or Supplier): {len(out_df)}')
+    print(f'  Missing Category only: {missing_category_only}')
+    print(f'  Missing Supplier only: {missing_supplier_only}')
+    print(f'  Missing BOTH Category and Supplier: {missing_both}')
+    print()
+    if len(out_df) == 0:
+        print('Nothing flagged -- every active item already has Category and Supplier filled in.')
+    else:
+        print(f'Saved to: {os.path.abspath(out_path)}')
+        print()
+        print('Fill in Category / Supplier for the flagged items, then run')
+        print('Merge_Item_Settings.py and select this file -- it will update')
+        print('ONLY Category and Supplier in Master, leaving every other column untouched.')
+
+
 def main():
+    print('=' * 70)
+    print(' ITEM SETTINGS EXPORT')
+    print('=' * 70)
+    print('Select export mode:')
+    print('  1. Full Item Settings Worksheet (all active items)')
+    print('  2. Items Missing Category and/or Supplier only')
+    mode_choice = input('Enter 1 or 2 (default 1): ').strip()
+    mode = '2' if mode_choice == '2' else '1'
+    print()
+
     df = pd.read_excel(MASTER_FILE, sheet_name='INVENTORY MASTER')
     df['Item_Code'] = df['Item_Code'].astype(str).str.strip()
 
@@ -87,10 +180,11 @@ def main():
     else:
         discontinued_excluded = 0
 
-    for col, default in [('Reorder_Point', 10), ('Supplier', ''), ('Category', ''), ('Is_Generic', '')]:
+    for col, default in [('Reorder_Point', 10), ('Supplier', ''), ('Category', ''), ('Is_Generic', ''), ('Current_Stock', 0)]:
         if col not in df.columns:
             df[col] = default
     df['Reorder_Point'] = pd.to_numeric(df['Reorder_Point'], errors='coerce').fillna(10)
+    df['Current_Stock'] = pd.to_numeric(df['Current_Stock'], errors='coerce').fillna(0)
     df['Supplier'] = df['Supplier'].fillna('').astype(str).str.strip()
     df['Category'] = df['Category'].fillna('').astype(str).str.strip()
     df['Is_Generic'] = df['Is_Generic'].fillna('').astype(str).str.strip().str.upper()
@@ -108,8 +202,13 @@ def main():
         Supplier=('Supplier', 'first'),
         Category=('Category', 'first'),
         Is_Generic=('Is_Generic', 'first'),
+        Current_Stock=('Current_Stock', 'sum'),
     ).reset_index()
     agg['Item_Name'] = agg['Item_Code'].map(representative_name)
+
+    if mode == '2':
+        export_missing_category_supplier(agg, discontinued_excluded)
+        return
 
     velocity = load_sales_velocity()
     agg = agg.merge(velocity, on='Item_Code', how='left')
@@ -143,50 +242,11 @@ def main():
         for col, w in widths.items():
             ws.column_dimensions[col].width = w
 
-    # Second pass with openpyxl to attach real Excel data validation dropdowns
-    # (works in desktop Excel, not just Google Sheets). Category's 17-item
-    # list joined is ~500 chars, over Excel's 255-char inline-list limit, so
-    # -- same fix as the "Removed Feature: Data validation" corruption found
-    # 2026-07-19/20 in Add_Reorder_And_Supplier_Columns.py -- all 3 dropdowns
-    # source from a hidden helper sheet via DefinedName ranges instead of
-    # inline formula1 strings, for consistency and to avoid that failure mode
-    # entirely (not just for Category, where it would actually be hit).
-    wb = load_workbook(out_path)
-    ws = wb['Item Settings']
+    # Reorder_Point stays manual/numeric (no dropdown, per Danny's request).
     last_row = len(out_df) + 1
-
-    if LISTS_SHEET_NAME in wb.sheetnames:
-        del wb[LISTS_SHEET_NAME]
-    lists_ws = wb.create_sheet(LISTS_SHEET_NAME)
-    lists_ws.sheet_state = 'hidden'
-
     dropdown_cols = [('Category', 'C', CATEGORY_LIST), ('Supplier', 'D', SUPPLIER_LIST),
                       ('Branded_Generic', 'F', BRANDED_GENERIC_OPTIONS)]
-    for list_col_idx, (col_name, col_letter, options) in enumerate(dropdown_cols, start=1):
-        list_col_letter = get_column_letter(list_col_idx)
-        for row_idx, value in enumerate(options, start=1):
-            lists_ws.cell(row=row_idx, column=list_col_idx, value=value)
-
-        range_name = f'{col_name}DropdownRange'
-        range_ref = f"'{LISTS_SHEET_NAME}'!${list_col_letter}$1:${list_col_letter}${len(options)}"
-        wb.defined_names[range_name] = DefinedName(range_name, attr_text=range_ref)
-
-        # Reorder_Point stays manual/numeric (no dropdown, per Danny's request).
-        # Strict validation (showErrorMessage=True) here, unlike Master's own
-        # lenient dropdowns -- the explicit goal this time is avoiding typos,
-        # so free-text entry outside the list is rejected rather than allowed.
-        dv = DataValidation(
-            type='list',
-            formula1=range_name,
-            allow_blank=True,
-            showErrorMessage=True,
-            errorTitle='Invalid entry',
-            error=f'Please pick a value from the {col_name} dropdown list (or leave blank).',
-        )
-        ws.add_data_validation(dv)
-        dv.add(f'{col_letter}2:{col_letter}{last_row}')
-
-    wb.save(out_path)
+    attach_dropdowns(out_path, 'Item Settings', last_row, dropdown_cols)
 
     tier1_count = (agg['_tier'] == 1).sum()
     tier2_count = (agg['_tier'] == 2).sum()
