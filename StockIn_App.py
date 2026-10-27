@@ -7,6 +7,7 @@ import os
 import sys
 
 from name_cleaning import clean_text
+from item_code_resolver import Resolver, CORRUPTED, sheet_text_code
 
 # Anchor to this script's own folder, not the launch-time working directory
 # (which can end up somewhere unexpected -- e.g. C:\Windows\System32 -- if
@@ -55,6 +56,14 @@ def load_items():
             return {}
         items = df[['Item_Code', 'Product_Name']].drop_duplicates().dropna()
         items = items.sort_values(by='Product_Name')
+        # Item_Codes are read as TEXT (dtype=str above), so leading zeros survive -- including future
+        # items whose Item_Code is a manufacturer barcode. A damaged code (e.g. 4.80015E+12) is reported.
+        _checker = Resolver()
+        _damaged = sorted({str(c).strip() for c in items['Item_Code'] if _checker.resolve(c).status == CORRUPTED})
+        if _damaged:
+            messagebox.showwarning("DAMAGED ITEM CODE IN MASTER",
+                                   "These Item_Codes in the Master look damaged (scientific notation, .0 or spaces). "
+                                   "Do NOT stock in these items until the Master is fixed:\n\n" + "\n".join(_damaged[:15]))
         return dict(zip(items['Product_Name'], items['Item_Code']))
     except Exception as e:
         messagebox.showerror("FILE IN USE", f"Please close the Inventory Masterlist Excel file before operating the system.\n\nError: {e}")
@@ -283,7 +292,7 @@ def process_batch_to_master():
                 payload = {
                     'target_tab': 'Stock_Adjustments',
                     'row_data': [
-                        ts.strftime('%Y-%m-%d %H:%M:%S'), staff_name.upper(), str(code), prod,
+                        ts.strftime('%Y-%m-%d %H:%M:%S'), staff_name.upper(), sheet_text_code(code), prod,
                         f"{float(qty):.0f}", 'IN', f"Incoming Delivery (Lot: {lot}, Exp: {exp})",
                         'STOCK_IN', 'StockIn_App',
                     ],

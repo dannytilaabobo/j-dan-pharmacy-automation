@@ -29,6 +29,7 @@ from tkinter import ttk, messagebox, filedialog
 from werkzeug.security import generate_password_hash, check_password_hash
 
 from name_cleaning import clean_text
+from item_code_resolver import get_resolver, resolve_series, announce, sheet_text_code
 
 warnings.filterwarnings('ignore', category=UserWarning)
 
@@ -430,6 +431,13 @@ def _cached_read(path, parser):
     return value
 
 
+def _to_internal_codes(series, label):
+    """BITPOS Item Code -> internal (old) Item_Code. Unresolved/corrupted codes stay as typed and are logged."""
+    codes, report = resolve_series(series, get_resolver())
+    announce(report, f'Investigation: {label}', show=None, log=True)
+    return codes
+
+
 # ---------- raw BITPOS POS export reader (mirrors Daily_Deduct_App.read_pos_file) ----------
 def read_pos_file(filepath):
     if filepath.lower().endswith('.csv'):
@@ -452,7 +460,7 @@ def read_pos_file(filepath):
 
     if 'Item Code' in df.columns:
         df = df[~df['Item Code'].astype(str).str.contains('Total', case=False, na=False)]
-        df['Item Code'] = df['Item Code'].astype(str).str.strip()
+        df['Item Code'] = _to_internal_codes(df['Item Code'].astype(str).str.strip(), 'BITPOS sales file')
     if 'Description' in df.columns:
         df['Description'] = df['Description'].fillna('').apply(clean_text)
 
@@ -528,7 +536,7 @@ def _parse_eod_file(path):
     df.columns = [str(c).strip() for c in df.columns]
     if 'Item Code' not in df.columns:
         return None
-    df['Item Code'] = df['Item Code'].astype(str).str.strip()
+    df['Item Code'] = _to_internal_codes(df['Item Code'].astype(str).str.strip(), 'processed EOD file')
     df['Qty'] = pd.to_numeric(df['Qty'], errors='coerce').fillna(0)
     df['_date'] = df['Date'].apply(parse_date_cell) if 'Date' in df.columns else None
     return df
@@ -827,7 +835,7 @@ def _queue_cloud_sync(ts, operation_type, item_code, name, staff, delta, reason)
     payload = {
         'target_tab': 'Stock_Adjustments',
         'row_data': [
-            ts.strftime('%Y-%m-%d %H:%M:%S'), staff.upper(), str(item_code), name,
+            ts.strftime('%Y-%m-%d %H:%M:%S'), staff.upper(), sheet_text_code(item_code), name,
             f"{abs(delta):.0f}", txn_type, reason, operation_type, SOURCE_TAG,
         ],
     }

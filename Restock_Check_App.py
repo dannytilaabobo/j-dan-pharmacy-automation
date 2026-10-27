@@ -7,6 +7,8 @@ import glob
 import sys
 import traceback
 
+from item_code_resolver import resolve_sales_history
+
 # Anchor to this script's own folder, not the launch-time working directory
 # (which can end up somewhere unexpected -- e.g. C:\Windows\System32 -- if
 # launched via a shortcut, elevation, or scheduler that doesn't set cwd).
@@ -61,6 +63,9 @@ last_inconsistent_item_codes = []  # raw Item_Codes, read by export_lot_inconsis
 last_raw_lots_df = None  # per-lot rows (pre-aggregation), read by export_lot_inconsistency_report()
 
 
+code_check = {'text': ''}  # Item Code check result of the last load_sales_velocity() call
+
+
 def load_sales_velocity(window_days):
     """Total units sold per Item_Code in the last `window_days` days, from
     JDan_Sales_System/EOD_Deduction_Reports/PROCESSED_EOD_*.xlsx (read-only).
@@ -68,7 +73,7 @@ def load_sales_velocity(window_days):
     frames = []
     for path in glob.glob(f'{EOD_DIR}/PROCESSED_EOD_*.xlsx'):
         try:
-            df = pd.read_excel(path)
+            df = pd.read_excel(path, dtype={'Item Code': str})
         except Exception:
             continue
         frames.append(df)
@@ -81,7 +86,9 @@ def load_sales_velocity(window_days):
     all_sales = all_sales[all_sales['Date'] >= cutoff]
 
     all_sales['Qty'] = pd.to_numeric(all_sales['Qty'], errors='coerce').fillna(0).abs()
-    all_sales['Item_Code'] = all_sales['Item Code'].astype(str).str.strip()
+    # BITPOS codes are translated to the internal Item_Code first (barcode -> old code).
+    # Unresolved / corrupted / empty codes are kept as typed, counted and reported -- never dropped.
+    all_sales['Item_Code'], code_check['text'] = resolve_sales_history(all_sales, 'Restock Check', show=None)
     return all_sales.groupby('Item_Code').agg(Total_Qty_Sold=('Qty', 'sum')).reset_index()
 
 
@@ -89,7 +96,7 @@ def run_scan():
     global last_scan_results, last_inconsistent_display, last_inconsistent_item_codes, last_raw_lots_df
 
     try:
-        df = pd.read_excel(MASTER_FILE, sheet_name='INVENTORY MASTER')
+        df = pd.read_excel(MASTER_FILE, sheet_name='INVENTORY MASTER', dtype={'Item_Code': str})
     except PermissionError:
         messagebox.showerror("File In Use", f"Please close {MASTER_FILE} in Excel first before scanning.")
         return
@@ -139,6 +146,8 @@ def run_scan():
     agg['Product_Name'] = agg['Item_Code'].map(representative_name)
 
     velocity = load_sales_velocity(PRIORITY_WINDOW_DAYS)
+    if code_check['text']:
+        messagebox.showwarning("Item Code Check", code_check['text'])
     agg = agg.merge(velocity, on='Item_Code', how='left')
     agg['Total_Qty_Sold'] = agg['Total_Qty_Sold'].fillna(0)
     agg['Is_Active'] = agg['Total_Qty_Sold'] >= MIN_UNITS_SOLD_FOR_PRIORITY

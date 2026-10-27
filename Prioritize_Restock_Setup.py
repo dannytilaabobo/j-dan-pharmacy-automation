@@ -3,6 +3,8 @@ import glob
 import datetime
 import pandas as pd
 
+from item_code_resolver import resolve_sales_history
+
 # Anchor to this script's own folder, not the launch-time working directory
 # (which can end up somewhere unexpected -- e.g. C:\Windows\System32 -- if
 # launched via a shortcut, elevation, or scheduler that doesn't set cwd).
@@ -19,14 +21,16 @@ TIER2_CUTOFF = 150  # next N -- do next
 def load_sales_velocity():
     frames = []
     for path in glob.glob(f'{EOD_DIR}/PROCESSED_EOD_*.xlsx'):
-        df = pd.read_excel(path)
+        df = pd.read_excel(path, dtype={'Item Code': str})
         df['source_file'] = path
         frames.append(df)
     if not frames:
         raise FileNotFoundError('No PROCESSED_EOD_*.xlsx files found -- no sales history to rank by.')
     all_sales = pd.concat(frames, ignore_index=True)
     all_sales['Qty'] = pd.to_numeric(all_sales['Qty'], errors='coerce').fillna(0).abs()
-    all_sales['Item_Code'] = all_sales['Item Code'].astype(str).str.strip()
+    # BITPOS codes are translated to the internal Item_Code first (barcode -> old code).
+    # Unresolved / corrupted / empty codes are kept as typed, counted and reported -- never dropped.
+    all_sales['Item_Code'], _ = resolve_sales_history(all_sales, 'Prioritize Restock Setup')
 
     velocity = all_sales.groupby('Item_Code').agg(
         Total_Qty_Sold=('Qty', 'sum'),
@@ -38,7 +42,7 @@ def load_sales_velocity():
 def main():
     velocity = load_sales_velocity()
 
-    df_master = pd.read_excel(MASTER_FILE, sheet_name='INVENTORY MASTER')
+    df_master = pd.read_excel(MASTER_FILE, sheet_name='INVENTORY MASTER', dtype={'Item_Code': str})
     df_master['Item_Code'] = df_master['Item_Code'].astype(str).str.strip()
     if 'Status' in df_master.columns:
         df_master = df_master[df_master['Status'].astype(str).str.strip().str.upper() != 'DISCONTINUED']

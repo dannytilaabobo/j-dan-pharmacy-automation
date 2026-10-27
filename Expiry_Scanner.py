@@ -9,6 +9,7 @@ import os
 import shutil
 import openpyxl
 import re
+from item_code_resolver import sheet_text_code
 
 # Anchor to this script's own folder, not the launch-time working directory
 # (which can end up somewhere unexpected -- e.g. C:\Windows\System32 -- if
@@ -67,8 +68,8 @@ def standardize_date(date_str):
 
 def scan_expiries():
     try:
-        df = pd.read_excel(master_file, sheet_name='INVENTORY MASTER')
-        df.columns = df.columns.str.strip() 
+        df = pd.read_excel(master_file, sheet_name='INVENTORY MASTER', dtype={'Item_Code': str})
+        df.columns = df.columns.str.strip()  
         df['Current_Stock'] = pd.to_numeric(df['Current_Stock'], errors='coerce').fillna(0)
         df['Expiry_Date'] = df['Expiry_Date'].astype(str).str.strip()
         
@@ -187,7 +188,7 @@ def add_extra_item():
     list_scroll.config(command=result_list.yview)
 
     try:
-        df_master = pd.read_excel(master_file, sheet_name='INVENTORY MASTER')
+        df_master = pd.read_excel(master_file, sheet_name='INVENTORY MASTER', dtype={'Item_Code': str})
     except:
         messagebox.showerror("System Error", "Cannot read Inventory_Master.xlsx")
         search_window.destroy()
@@ -307,6 +308,7 @@ def process_pullout():
 
         log_entries = []
         final_report_data = [] 
+        not_fully_deducted = []
 
         for item in items_to_process:
             qty_to_deduct = item['actual_qty']
@@ -328,6 +330,10 @@ def process_pullout():
                         })
             
             item_rows.sort(key=lambda x: x['expiry_dt'])
+            if not item_rows:
+                not_fully_deducted.append(f"{item['code']} | {item['name']}: no row with stock was found in the Master - NOTHING was deducted")
+            elif sum(ir['stock'] for ir in item_rows) < qty_to_deduct:
+                not_fully_deducted.append(f"{item['code']} | {item['name']}: only {sum(ir['stock'] for ir in item_rows):g} in stock, {qty_to_deduct:g} requested - stock was set to 0")
             
             for ir in item_rows:
                 available = ir['stock']
@@ -363,7 +369,7 @@ def process_pullout():
                 payload = {
                     'target_tab': 'Stock_Adjustments',
                     'row_data': [
-                        ts.strftime('%Y-%m-%d %H:%M:%S'), staff_name.upper(), str(item['code']), item['name'],
+                        ts.strftime('%Y-%m-%d %H:%M:%S'), staff_name.upper(), sheet_text_code(item['code']), item['name'],
                         f"{item['actual_qty']:.0f}", 'OUT',
                         f"Expiry Pull-Out (Pulled Exp: {item['pulled_expiry']})",
                         'PULL_OUT', 'Expiry_Scanner',
@@ -382,6 +388,8 @@ def process_pullout():
             logbook.write(f"[{timestamp}] - PULL-OUT PROCESS (FIFO ENGINE) by {staff_name.upper()}\n")
             for entry in log_entries:
                 logbook.write(entry + "\n")
+            for warning_line in not_fully_deducted:
+                logbook.write(f"   !! NOT FULLY DEDUCTED: {warning_line}\n")
 
         df_completed = pd.DataFrame(final_report_data, columns=['Item_Code', 'Product_Name', 'Actual_Pulled_Qty', 'Pulled_Expiry_Date', 'Next_Tentative_Expiry', 'Processed_By'])
         completed_report_path = os.path.join(reports_folder, f'COMPLETED_PULLOUT_{staff_name.upper()}_{timestamp_str}.xlsx')
@@ -392,6 +400,8 @@ def process_pullout():
             dst = os.path.join(proofs_folder, f"{timestamp_str}_{staff_name}_{f}")
             shutil.move(src, dst)
 
+        if not_fully_deducted:
+            messagebox.showwarning("CHECK: STOCK NOT FULLY DEDUCTED", "The following item(s) were not (fully) deducted from the Master:\n\n" + "\n".join(not_fully_deducted))
         messagebox.showinfo("Operation Successful", f"Masterlist Reconciled Successfully!\n\nA final report named 'COMPLETED_PULLOUT_{staff_name.upper()}_{timestamp_str}.xlsx' has been automatically generated and saved in the Reports folder.")
         scan_expiries() 
         

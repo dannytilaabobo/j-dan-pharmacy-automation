@@ -8,6 +8,8 @@ import shutil
 import sys
 import traceback
 
+from item_code_resolver import resolve_sales_history
+
 # Anchor to this script's own folder, not the launch-time working directory
 # (which can end up somewhere unexpected -- e.g. C:\Windows\System32 -- if
 # launched via a shortcut, elevation, or scheduler that doesn't set cwd).
@@ -82,11 +84,14 @@ def norm(s):
     return str(s).strip().upper()
 
 
+code_check = {'text': ''}  # Item Code check result of the last load_sales_velocity() call
+
+
 def load_sales_velocity():
     frames = []
     for path in glob.glob(f'{EOD_DIR}/PROCESSED_EOD_*.xlsx'):
         try:
-            df = pd.read_excel(path)
+            df = pd.read_excel(path, dtype={'Item Code': str})
         except Exception:
             continue
         frames.append(df)
@@ -94,12 +99,14 @@ def load_sales_velocity():
         return pd.DataFrame(columns=['Item_Code', 'Total_Qty_Sold'])
     all_sales = pd.concat(frames, ignore_index=True)
     all_sales['Qty'] = pd.to_numeric(all_sales['Qty'], errors='coerce').fillna(0).abs()
-    all_sales['Item_Code'] = all_sales['Item Code'].astype(str).str.strip()
+    # BITPOS codes are translated to the internal Item_Code first (barcode -> old code).
+    # Unresolved / corrupted / empty codes are kept as typed, counted and reported -- never dropped.
+    all_sales['Item_Code'], code_check['text'] = resolve_sales_history(all_sales, 'Item Settings', show=None)
     return all_sales.groupby('Item_Code').agg(Total_Qty_Sold=('Qty', 'sum')).reset_index()
 
 
 def load_working_data():
-    df = pd.read_excel(MASTER_FILE, sheet_name='INVENTORY MASTER')
+    df = pd.read_excel(MASTER_FILE, sheet_name='INVENTORY MASTER', dtype={'Item_Code': str})
     df['Item_Code'] = df['Item_Code'].astype(str).str.strip()
     if 'Status' in df.columns:
         df = df[df['Status'].astype(str).str.strip().str.upper() != 'DISCONTINUED']
@@ -166,6 +173,9 @@ except PermissionError:
         f"Please close it and try again."
     )
     sys.exit()
+
+if code_check['text']:
+    messagebox.showwarning("Item Code Check", code_check['text'])
 
 pending_edits = {}  # Item_Code -> {'Reorder_Point': x, 'Supplier': y, 'Category': z, 'Is_Generic': w}
 
@@ -329,7 +339,7 @@ def save_all_to_master():
         return
 
     try:
-        df_master = pd.read_excel(MASTER_FILE, sheet_name='INVENTORY MASTER')
+        df_master = pd.read_excel(MASTER_FILE, sheet_name='INVENTORY MASTER', dtype={'Item_Code': str})
     except PermissionError:
         messagebox.showerror("File In Use", f"Please close {MASTER_FILE} in Excel first before saving.")
         return

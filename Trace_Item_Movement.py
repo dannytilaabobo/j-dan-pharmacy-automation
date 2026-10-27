@@ -13,6 +13,7 @@ import datetime
 import pandas as pd
 
 from name_cleaning import clean_text
+from item_code_resolver import get_resolver, resolve_series, announce
 
 # Anchor to this script's own folder, not the launch-time working directory
 # (which can end up somewhere unexpected -- e.g. C:\Windows\System32 -- if
@@ -52,6 +53,13 @@ def parse_date_cell(value):
 #    real Item Code / Qty table -- kept independent here since this script
 #    must stay read-only and cannot import a GUI-launching module.)
 # ==========================================
+def to_internal_codes(series, label):
+    """BITPOS Item Code -> internal (old) Item_Code. Unresolved/corrupted codes stay as typed, and are printed and logged."""
+    codes, report = resolve_series(series, get_resolver())
+    announce(report, f'Trace: {label}')
+    return codes
+
+
 def read_pos_file(filepath):
     if filepath.lower().endswith('.csv'):
         df_raw = pd.read_csv(filepath, header=None, dtype=str)
@@ -73,7 +81,7 @@ def read_pos_file(filepath):
 
     if 'Item Code' in df.columns:
         df = df[~df['Item Code'].astype(str).str.contains('Total', case=False, na=False)]
-        df['Item Code'] = df['Item Code'].astype(str).str.strip()
+        df['Item Code'] = to_internal_codes(df['Item Code'].astype(str).str.strip(), os.path.basename(filepath))
 
     if 'Description' in df.columns:
         df['Description'] = df['Description'].fillna('').apply(clean_text)
@@ -141,7 +149,7 @@ def load_eod_deductions_for_items(item_codes):
         df.columns = [str(c).strip() for c in df.columns]
         if 'Item Code' not in df.columns:
             continue
-        df['Item Code'] = df['Item Code'].astype(str).str.strip()
+        df['Item Code'] = to_internal_codes(df['Item Code'].astype(str).str.strip(), os.path.basename(path))
         df['_date'] = df['Date'].apply(parse_date_cell) if 'Date' in df.columns else None
         df = df[df['_date'].notna() & (df['_date'] >= LOOKBACK_START) & df['Item Code'].isin(item_codes)]
         if not df.empty:

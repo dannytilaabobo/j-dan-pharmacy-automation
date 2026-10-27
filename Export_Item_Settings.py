@@ -7,6 +7,8 @@ from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.datavalidation import DataValidation
 from openpyxl.workbook.defined_name import DefinedName
 
+from item_code_resolver import resolve_sales_history
+
 # Anchor to this script's own folder, not the launch-time working directory
 # (which can end up somewhere unexpected -- e.g. C:\Windows\System32 -- if
 # launched via a shortcut, elevation, or scheduler that doesn't set cwd).
@@ -64,7 +66,7 @@ def load_sales_velocity():
     frames = []
     for path in glob.glob(f'{EOD_DIR}/PROCESSED_EOD_*.xlsx'):
         try:
-            df = pd.read_excel(path)
+            df = pd.read_excel(path, dtype={'Item Code': str})
         except Exception:
             continue
         frames.append(df)
@@ -72,7 +74,9 @@ def load_sales_velocity():
         return pd.DataFrame(columns=['Item_Code', 'Total_Qty_Sold'])
     all_sales = pd.concat(frames, ignore_index=True)
     all_sales['Qty'] = pd.to_numeric(all_sales['Qty'], errors='coerce').fillna(0).abs()
-    all_sales['Item_Code'] = all_sales['Item Code'].astype(str).str.strip()
+    # BITPOS codes are translated to the internal Item_Code first (barcode -> old code).
+    # Unresolved / corrupted / empty codes are kept as typed, counted and reported -- never dropped.
+    all_sales['Item_Code'], _ = resolve_sales_history(all_sales, 'Export Item Settings')
     return all_sales.groupby('Item_Code').agg(Total_Qty_Sold=('Qty', 'sum')).reset_index()
 
 
@@ -169,7 +173,7 @@ def main():
     mode = '2' if mode_choice == '2' else '1'
     print()
 
-    df = pd.read_excel(MASTER_FILE, sheet_name='INVENTORY MASTER')
+    df = pd.read_excel(MASTER_FILE, sheet_name='INVENTORY MASTER', dtype={'Item_Code': str})
     df['Item_Code'] = df['Item_Code'].astype(str).str.strip()
 
     if 'Status' in df.columns:
