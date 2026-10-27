@@ -41,3 +41,18 @@ __pycache__/
 
 # Google Drive Desktop sync staging folder (not project content)
 .tmp.driveupload/
+
+# Barcode crosswalk (business data; also covered by *.csv, listed explicitly on purpose)
+Barcode_Crosswalk.csv
+Barcode_Crosswalk_BACKUP_*.csv
+
+# Generated barcode-rollout work folders, verification output and snapshots (reports and data, not source)
+Barcode_Diagnostic_*/
+Foundation_Build_*/
+Pilot_Batch_Prep_*/
+Barcode_Verification_*/
+Commit_And_Fenofibrate_*/
+
+# Local databases
+*.db
+*.sqlite
