@@ -3,6 +3,8 @@ import glob
 import datetime
 import pandas as pd
 
+from item_code_resolver import resolve_series, announce
+
 # Anchor to this script's own folder, not the launch-time working directory
 # (which can end up somewhere unexpected -- e.g. C:\Windows\System32 -- if
 # launched via a shortcut, elevation, or scheduler that doesn't set cwd).
@@ -20,12 +22,15 @@ def load_bitpos():
     df = pd.read_csv(path, dtype=str)
     df.columns = [c.strip() for c in df.columns]
     df['ITEM CODE'] = df['ITEM CODE'].astype(str).str.strip()
+    # barcode -> internal (old) Item_Code; anything unresolved stays as typed and is reported
+    df['ITEM CODE'], _code_report = resolve_series(df['ITEM CODE'])
+    announce(_code_report, 'Compare BITPOS Prices')
     df['Retail'] = pd.to_numeric(df['Retail'], errors='coerce')
     return path, df
 
 
 def load_master():
-    df = pd.read_excel(MASTER_FILE, sheet_name='INVENTORY MASTER')
+    df = pd.read_excel(MASTER_FILE, sheet_name='INVENTORY MASTER', dtype={'Item_Code': str})
     df['Item_Code'] = df['Item_Code'].astype(str).str.strip()
     df['Retail_Price'] = pd.to_numeric(df['Retail_Price'], errors='coerce')
     return df
