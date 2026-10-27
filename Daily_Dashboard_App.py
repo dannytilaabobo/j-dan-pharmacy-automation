@@ -10,6 +10,8 @@ import traceback
 import json
 import shutil
 
+from item_code_resolver import Resolver, load_crosswalk, reconcile_sales, ask_yes_dialog, log_event
+
 # Anchor to this script's own folder, not the launch-time working directory
 # (which can end up somewhere unexpected -- e.g. C:\Windows\System32 -- if
 # launched via a shortcut, elevation, or scheduler that doesn't set cwd).
@@ -141,7 +143,7 @@ def generate_dashboard():
     # ------------------------------------------
     stock_dict = {}
     if os.path.exists(master_file):
-        df_master = pd.read_excel(master_file, sheet_name='INVENTORY MASTER')
+        df_master = pd.read_excel(master_file, sheet_name='INVENTORY MASTER', dtype={'Item_Code': str})
         if 'Expiry_Date' in df_master.columns:
             df_master['Expiry_Date'] = df_master['Expiry_Date'].fillna('NO-EXP')
         else:
@@ -162,7 +164,25 @@ def generate_dashboard():
         df_master = pd.DataFrame()
 
     # ------------------------------------------
-    # 5. DYNAMIC 20 SOD STRATIFIER GENERATOR 
+    # 4b. ITEM CODE vs PRODUCT NAME CROSS-CHECK (display only)
+    #     Names stay the matching key for stock; the code is only a cross-check.
+    # ------------------------------------------
+    if (not df_sales.empty and not df_master.empty and {'Item Code', 'Description', 'Qty'}.issubset(df_sales.columns)
+            and {'Item_Code', 'Product_Name'}.issubset(df_master.columns)):
+        df_chk = df_sales.copy()
+        df_chk['Qty'] = pd.to_numeric(df_chk['Qty'], errors='coerce').fillna(0).abs()
+        chk_resolver = Resolver(load_crosswalk(), set(df_master['Item_Code'].astype(str).str.strip()))
+        rc = reconcile_sales(df_chk, df_master, chk_resolver)
+        rc.log(f"SOD {target_date}")
+        if rc.needs_confirmation:
+            chk_lines = ["The sold report for this date does not fully agree with the Master item list.",
+                         "The SOD list below is still built from product names.", ""] + rc.summary_lines()
+            if not ask_yes_dialog(root, "SOD CHECK - REVIEW BEFORE CONTINUING", "\n".join(chk_lines)):
+                log_event(f"SOD {target_date} CANCELLED by {staff_name.upper()} at the code/name check - nothing was changed")
+                return
+
+    # ------------------------------------------
+    # 5. DYNAMIC 20 SOD STRATIFIER GENERATOR
     # ------------------------------------------
     sod_descriptions = []
     df_top_20_sod = pd.DataFrame()
@@ -320,7 +340,7 @@ def launch_stratifier_ui(target_date, df_stockin, df_sales, df_pullout, df_final
         # kaya paulit-ulit na nagpapatuloy ang parehong mismatch araw-araw.
         # ==========================================
         try:
-            df_master_live = pd.read_excel(master_file, sheet_name='INVENTORY MASTER')
+            df_master_live = pd.read_excel(master_file, sheet_name='INVENTORY MASTER', dtype={'Item_Code': str})
         except PermissionError:
             messagebox.showerror("Inventory Locked", f"Cannot reconcile {master_file} because it is open in Excel. Please close it and FINALIZE again.")
             return

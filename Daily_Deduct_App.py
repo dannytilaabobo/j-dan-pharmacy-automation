@@ -10,6 +10,8 @@ import traceback
 import sys
 
 from name_cleaning import clean_text
+from item_code_resolver import (Resolver, load_crosswalk, reconcile_sales, ask_yes_dialog, log_event,
+                                TRANSLATED, UNMATCHED, HELD_CONFLICT)
 
 # Anchor to this script's own folder, not the launch-time working directory
 # (which can end up somewhere unexpected -- e.g. C:\Windows\System32 -- if
@@ -82,6 +84,46 @@ def read_pos_file(filepath):
     df['Sales'] = pd.to_numeric(df['Sales'], errors='coerce').fillna(0.0)
     
     return df
+
+# ==========================================
+# FIFO DEDUCTION BY PRODUCT NAME
+# (this is the original loop, moved into a function so it can be tested on a
+# copy of the Master; the matching and the FIFO order are unchanged)
+# ==========================================
+def apply_fifo_deduction(df_master, deductions, allocation_log=None):
+    for item_name, deduct_qty in deductions.items():
+        if deduct_qty <= 0: continue
+        item_name_clean = str(item_name).strip().upper()
+
+        matching_mask = df_master['Product_Name'].astype(str).str.strip().str.upper() == item_name_clean
+        matching_rows = df_master[matching_mask]
+
+        if not matching_rows.empty:
+            df_master['Temp_Is_Blank'] = df_master['Expiry_Date'].isna() | (df_master['Expiry_Date'].astype(str).str.strip().str.upper() == 'NO-EXP')
+            df_master['Temp_Parsed_Date'] = pd.to_datetime(df_master['Expiry_Date'], errors='coerce').fillna(pd.Timestamp('2099-12-31'))
+
+            indices_to_process = matching_rows.index.tolist()
+            indices_to_process.sort(key=lambda idx: (df_master.loc[idx, 'Temp_Is_Blank'], df_master.loc[idx, 'Temp_Parsed_Date']))
+
+            qty_to_deduct = deduct_qty
+            for idx in indices_to_process:
+                current_stock = df_master.at[idx, 'Current_Stock']
+                if current_stock >= qty_to_deduct:
+                    df_master.at[idx, 'Current_Stock'] -= qty_to_deduct
+                    if allocation_log is not None:
+                        allocation_log.append((item_name_clean, idx, qty_to_deduct))
+                    qty_to_deduct = 0
+                    break
+                else:
+                    df_master.at[idx, 'Current_Stock'] = 0
+                    if allocation_log is not None:
+                        allocation_log.append((item_name_clean, idx, current_stock))
+                    qty_to_deduct -= current_stock
+
+    if 'Temp_Is_Blank' in df_master.columns: df_master = df_master.drop(columns=['Temp_Is_Blank'])
+    if 'Temp_Parsed_Date' in df_master.columns: df_master = df_master.drop(columns=['Temp_Parsed_Date'])
+    return df_master
+
 
 # ==========================================
 # MAIN APPLICATION GUI
@@ -237,7 +279,42 @@ class EODSettlementApp:
                 messagebox.showerror("Process Aborted", "Settlement halted. Variance requires a mandatory justification.")
                 return
 
+        if not self.run_reconciliation_gate():
+            return
+
         self.execute_ledger_deduction(initial_cash, actual_cash, gcash_total, charge_total, variance, void_just, cash_just, z_reading)
+
+    def run_reconciliation_gate(self):
+        """Display-only check BEFORE any stock is changed: compares the item found
+        by Item Code with the item found by product name, and reconciles the units.
+        Nothing is changed here. If any line is unmatched, in conflict, or has a
+        damaged code, the operator must type YES (cancel = nothing is changed)."""
+        self.reconciliation = None
+        if not os.path.exists(MASTER_FILE):
+            return True
+        base_name = os.path.splitext(os.path.basename(self.file_path))[0].upper()
+        try:
+            df_check = pd.read_excel(MASTER_FILE, sheet_name='INVENTORY MASTER', dtype={'Item_Code': str})
+        except PermissionError:
+            messagebox.showerror("Inventory Locked", f"CRITICAL: {MASTER_FILE} is currently OPEN on your PC. Please close the Excel file and run the EOD again.")
+            return False
+        if 'Product_Name' not in df_check.columns or 'Item_Code' not in df_check.columns:
+            return True
+        resolver = Resolver(load_crosswalk(), set(df_check['Item_Code'].astype(str).str.strip()))
+        rc = reconcile_sales(self.df[self.df['Qty'] > 0], df_check, resolver)
+        self.reconciliation = rc
+        rc.log(base_name)
+        if not rc.needs_confirmation:
+            return True
+        lines = ["The sales file and the Master item list do not fully agree.",
+                 "Name matching is still used to deduct stock; lines listed as NOT deducted are skipped.", ""]
+        lines += rc.summary_lines()
+        if not ask_yes_dialog(self.root, "EOD CHECK - REVIEW BEFORE DEDUCTING", "\n".join(lines)):
+            log_event(f"EOD {base_name} CANCELLED by {self.processor_name.upper()} at the reconciliation check - nothing was changed")
+            messagebox.showinfo("Process Cancelled", "Nothing was deducted and nothing was saved.\nThe POS file is still in the inbox folder.")
+            return False
+        log_event(f"EOD {base_name} reconciliation exceptions ACKNOWLEDGED (YES) by {self.processor_name.upper()}")
+        return True
 
     def execute_ledger_deduction(self, initial_cash, actual_cash, gcash_total, charge_total, variance, void_just, cash_just, z_reading):
         expected_total = z_reading + initial_cash
@@ -252,7 +329,17 @@ class EODSettlementApp:
         if not valid_sales.empty:
             valid_sales['Qty'] = valid_sales['Qty'] * -1
             
-        output_filename = f"PROCESSED_EOD_{base_name}.xlsx" 
+        # Reports and history always carry the INTERNAL (old) Item Code. Only when a
+        # barcode was translated is the raw BITPOS code kept in an extra column.
+        rc = getattr(self, 'reconciliation', None)
+        if rc is not None:
+            translated = {ln['index']: ln['code_internal'] for ln in rc.lines if ln['code_status'] == TRANSLATED}
+            if translated:
+                valid_sales['BITPOS_Item_Code'] = valid_sales['Item Code']
+                for idx, internal_code in translated.items():
+                    valid_sales.at[idx, 'Item Code'] = internal_code
+
+        output_filename = f"PROCESSED_EOD_{base_name}.xlsx"
         output_filepath = os.path.join(DEDUCTION_DIR, output_filename)
         valid_sales.to_excel(output_filepath, index=False)
 
@@ -262,42 +349,25 @@ class EODSettlementApp:
         sync_success = False
         if os.path.exists(MASTER_FILE):
             try:
-                df_master = pd.read_excel(MASTER_FILE, sheet_name='INVENTORY MASTER')
+                df_master = pd.read_excel(MASTER_FILE, sheet_name='INVENTORY MASTER', dtype={'Item_Code': str})
                 if 'Current_Stock' in df_master.columns and 'Product_Name' in df_master.columns:
                     df_master['Current_Stock'] = pd.to_numeric(df_master['Current_Stock'], errors='coerce').fillna(0)
                     
                     df_sales_calc = valid_sales.copy()
+                    # Lines whose code and name point to DIFFERENT items are never deducted automatically
+                    if rc is not None and rc.held_indices:
+                        df_sales_calc = df_sales_calc.drop(index=rc.held_indices)
                     df_sales_calc['Qty'] = pd.to_numeric(df_sales_calc['Qty'], errors='coerce').fillna(0).abs()
                     desc_col = 'Description' if 'Description' in df_sales_calc.columns else ('Product_Name' if 'Product_Name' in df_sales_calc.columns else 'Item Code')
                     deductions = df_sales_calc.groupby(desc_col)['Qty'].sum().to_dict()
-                    
-                    for item_name, deduct_qty in deductions.items():
-                        if deduct_qty <= 0: continue
-                        item_name_clean = str(item_name).strip().upper()
-                        
-                        matching_mask = df_master['Product_Name'].astype(str).str.strip().str.upper() == item_name_clean
-                        matching_rows = df_master[matching_mask]
-                        
-                        if not matching_rows.empty:
-                            df_master['Temp_Is_Blank'] = df_master['Expiry_Date'].isna() | (df_master['Expiry_Date'].astype(str).str.strip().str.upper() == 'NO-EXP')
-                            df_master['Temp_Parsed_Date'] = pd.to_datetime(df_master['Expiry_Date'], errors='coerce').fillna(pd.Timestamp('2099-12-31'))
-                            
-                            indices_to_process = matching_rows.index.tolist()
-                            indices_to_process.sort(key=lambda idx: (df_master.loc[idx, 'Temp_Is_Blank'], df_master.loc[idx, 'Temp_Parsed_Date']))
-                            
-                            qty_to_deduct = deduct_qty
-                            for idx in indices_to_process:
-                                current_stock = df_master.at[idx, 'Current_Stock']
-                                if current_stock >= qty_to_deduct:
-                                    df_master.at[idx, 'Current_Stock'] -= qty_to_deduct
-                                    qty_to_deduct = 0
-                                    break
-                                else:
-                                    df_master.at[idx, 'Current_Stock'] = 0
-                                    qty_to_deduct -= current_stock
-                                    
-                    if 'Temp_Is_Blank' in df_master.columns: df_master = df_master.drop(columns=['Temp_Is_Blank'])
-                    if 'Temp_Parsed_Date' in df_master.columns: df_master = df_master.drop(columns=['Temp_Parsed_Date'])
+
+                    stock_before = df_master['Current_Stock'].sum()
+                    df_master = apply_fifo_deduction(df_master, deductions)
+                    units_removed = stock_before - df_master['Current_Stock'].sum()
+                    if rc is not None:
+                        shortfall = rc.units_to_deduct - units_removed
+                        log_event(f"EOD {base_name}: units sent to deduction {rc.units_to_deduct:g}, units removed from stock {units_removed:g}, "
+                                  f"shortfall (stock too low to cover the sale) {shortfall:g}")
                     
                     with pd.ExcelWriter(MASTER_FILE, engine='openpyxl', mode='w') as writer:
                         df_master.to_excel(writer, sheet_name='INVENTORY MASTER', index=False)
@@ -321,6 +391,9 @@ class EODSettlementApp:
             f.write(f"System Export Sales: ₱ {self.system_total_sales:,.2f}\n")
             f.write(f"Z-Reading Match Status: {self.z_reading_justification}\n")
             f.write(f"Local Master Stock Deducted: {'YES' if sync_success else 'FAILED'}\n")
+            if rc is not None and (rc.count[UNMATCHED] or rc.count[HELD_CONFLICT]):
+                f.write(f"Lines NOT deducted (no matching item / code-name conflict): {rc.count[UNMATCHED] + rc.count[HELD_CONFLICT]} "
+                        f"({rc.units_not_deducted:g} units) - see JDan_System_Logs.txt\n")
             f.write(f"Void Transactions: {self.void_count}\n")
             f.write(f"Void Justifications:\n{void_just}\n\n")
             f.write(f"[ FUND RECONCILIATION ]\n")
@@ -363,7 +436,10 @@ class EODSettlementApp:
         except Exception as e:
             archive_status = f"WARNING: Could not move the POS file: {e}"
 
-        messagebox.showinfo("EOD SUCCESS", f"Settlement Complete!\n\n1. Generated report for: {base_name}\n2. The Live Master Inventory on this PC was automatically DEDUCTED.\n3. Queued in the background to sync to Google Sheets.\n\n{archive_status}")
+        exceptions_note = ""
+        if rc is not None and (rc.count[UNMATCHED] or rc.count[HELD_CONFLICT]):
+            exceptions_note = f"\n\nNOTE: {rc.count[UNMATCHED] + rc.count[HELD_CONFLICT]} sales line(s) ({rc.units_not_deducted:g} units) were NOT deducted. See JDan_System_Logs.txt."
+        messagebox.showinfo("EOD SUCCESS", f"Settlement Complete!\n\n1. Generated report for: {base_name}\n2. The Live Master Inventory on this PC was automatically DEDUCTED.\n3. Queued in the background to sync to Google Sheets.\n\n{archive_status}{exceptions_note}")
         self.root.destroy()
 
 if __name__ == "__main__":
